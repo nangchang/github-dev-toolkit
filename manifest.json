@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub Dev Toolkit",
+  "version": "0.1.0",
+  "description": "GitHub 개발 워크플로우를 강화하는 크롬 확장 프로그램. 파일을 클릭 한 번으로 VS Code에서 바로 열 수 있습니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "GitHub Dev Toolkit"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://github.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://github.com/*"],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background/background.js"
+  }
+}

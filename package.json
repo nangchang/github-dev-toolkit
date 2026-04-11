@@ -1,0 +1,15 @@
+{
+  "name": "github-dev-toolkit",
+  "version": "0.1.0",
+  "description": "A Chrome extension to enhance your GitHub workflow as a developer.",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "watch": "node scripts/build.js --watch",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.264",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.4.5"
+  }
+}
