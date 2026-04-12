@@ -29,4 +29,19 @@ for (const file of filesToCopy) {
   }
 }
 
+// _locales/ 복사 (manifest의 default_locale/__MSG__ 사용으로 필수)
+const localesSrc = "_locales";
+if (fs.existsSync(localesSrc)) {
+  for (const locale of fs.readdirSync(localesSrc)) {
+    const destDir = path.join("dist/_locales", locale);
+    fs.mkdirSync(destDir, { recursive: true });
+    const msgSrc = path.join(localesSrc, locale, "messages.json");
+    const msgDest = path.join(destDir, "messages.json");
+    if (fs.existsSync(msgSrc)) {
+      fs.copyFileSync(msgSrc, msgDest);
+      console.log(`  ✅ ${msgSrc} → ${msgDest}`);
+    }
+  }
+}
+
 console.log("✨ 빌드 완료! dist/ 폴더를 Chrome에 로드하세요.");

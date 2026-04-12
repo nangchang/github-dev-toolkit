@@ -11,6 +11,7 @@ const dirs = [
   "dist/content",
   "dist/background",
   "dist/icons",
+  "dist/_locales",
 ];
 for (const dir of dirs) {
   fs.mkdirSync(dir, { recursive: true });
@@ -40,7 +41,24 @@ function copyStatic() {
   }
 }
 
+function copyLocales() {
+  const src = "_locales";
+  const dest = "dist/_locales";
+  if (!fs.existsSync(src)) return;
+  for (const locale of fs.readdirSync(src)) {
+    const destDir = path.join(dest, locale);
+    fs.mkdirSync(destDir, { recursive: true });
+    const msgSrc = path.join(src, locale, "messages.json");
+    const msgDest = path.join(destDir, "messages.json");
+    if (fs.existsSync(msgSrc)) {
+      fs.copyFileSync(msgSrc, msgDest);
+      console.log(`  ✅ ${msgSrc} → ${msgDest}`);
+    }
+  }
+}
+
 copyStatic();
+copyLocales();
 
 // ─── 3. esbuild로 TypeScript 번들링 ─────────────────────────────────
 /** @type {import('esbuild').BuildOptions} */

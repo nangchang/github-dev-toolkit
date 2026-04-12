@@ -312,8 +312,8 @@ function createOpenButton(
   const btn = document.createElement("a");
   btn.className = "flex-self-center gdt-open-btn" + (compact ? " gdt-open-btn--compact" : "");
   btn.setAttribute("role", "button");
-  btn.setAttribute("aria-label", `${IDE_DISPLAY_NAMES[settings.ide]}에서 열기`);
-  btn.setAttribute("title", `${IDE_DISPLAY_NAMES[settings.ide]}에서 열기: ${absolutePath}`);
+  btn.setAttribute("aria-label", chrome.i18n.getMessage("btnOpenInIde", [IDE_DISPLAY_NAMES[settings.ide]]));
+  btn.setAttribute("title", chrome.i18n.getMessage("tooltipOpenInIde", [IDE_DISPLAY_NAMES[settings.ide], absolutePath]));
 
   // VS Code 아이콘 (SVG)
   const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -325,7 +325,7 @@ function createOpenButton(
 
   // compact 모드가 아닐 때만 텍스트 레이블 표시
   if (!compact) {
-    const label = document.createTextNode(`${IDE_DISPLAY_NAMES[settings.ide]}에서 열기`);
+    const label = document.createTextNode(chrome.i18n.getMessage("btnOpenInIde", [IDE_DISPLAY_NAMES[settings.ide]]));
     btn.appendChild(label);
   }
 
@@ -379,7 +379,7 @@ function createUnconfiguredButton(compact: boolean = false): HTMLAnchorElement {
   const btn = document.createElement("a");
   btn.className = "gdt-open-btn gdt-unconfigured" + (compact ? " gdt-open-btn--compact" : "");
   btn.setAttribute("role", "button");
-  btn.setAttribute("title", "GitHub Dev Toolkit: 확장 프로그램 팝업에서 기본 경로와 IDE를 설정해주세요.");
+  btn.setAttribute("title", chrome.i18n.getMessage("tooltipUnconfigured"));
 
   const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   icon.setAttribute("viewBox", "0 0 16 16");
@@ -388,7 +388,7 @@ function createUnconfiguredButton(compact: boolean = false): HTMLAnchorElement {
 
   btn.appendChild(icon);
   if (!compact) {
-    btn.appendChild(document.createTextNode("IDE 설정하기"));
+    btn.appendChild(document.createTextNode(chrome.i18n.getMessage("btnConfigureIde")));
   }
 
   btn.addEventListener("click", (e) => {

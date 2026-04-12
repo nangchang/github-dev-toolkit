@@ -1,0 +1,57 @@
+{
+  "extDescription": {
+    "message": "Enhance your GitHub dev workflow. Open any file directly in your local IDE with a single click."
+  },
+  "labelEditor": {
+    "message": "Editor / IDE"
+  },
+  "labelBasePath": {
+    "message": "Workspace Base Path"
+  },
+  "hintBasePath": {
+    "message": "Parent folder where your repositories are cloned"
+  },
+  "hintBasePathExample": {
+    "message": "(e.g. /User/home/Github)"
+  },
+  "btnSave": {
+    "message": "Save Settings"
+  },
+  "btnSaved": {
+    "message": "Saved!"
+  },
+  "statusSaved": {
+    "message": "✅ Settings saved. IDE: $IDE$",
+    "placeholders": {
+      "ide": { "content": "$1" }
+    }
+  },
+  "errorEmptyPath": {
+    "message": "Please enter the workspace base path."
+  },
+  "errorInvalidPath": {
+    "message": "Path must be an absolute path starting with /."
+  },
+  "footerHint": {
+    "message": "Look for the \"Open in IDE\" button in GitHub file views."
+  },
+  "btnOpenInIde": {
+    "message": "Open in $IDE_NAME$",
+    "placeholders": {
+      "ide_name": { "content": "$1" }
+    }
+  },
+  "tooltipOpenInIde": {
+    "message": "Open in $IDE_NAME$: $FILE_PATH$",
+    "placeholders": {
+      "ide_name": { "content": "$1" },
+      "file_path": { "content": "$2" }
+    }
+  },
+  "btnConfigureIde": {
+    "message": "Configure IDE"
+  },
+  "tooltipUnconfigured": {
+    "message": "GitHub Dev Toolkit: Please set your base path and IDE in the extension popup."
+  }
+}

@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "GitHub Dev Toolkit",
   "version": "0.1.0",
-  "description": "GitHub 개발 워크플로우를 강화하는 크롬 확장 프로그램. 파일을 클릭 한 번으로 VS Code에서 바로 열 수 있습니다.",
+  "default_locale": "en",
+  "description": "__MSG_extDescription__",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
