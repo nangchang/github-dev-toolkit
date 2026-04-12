@@ -14,6 +14,13 @@ let statusTimer: ReturnType<typeof setTimeout> | null = null;
  * [data-i18n] 속성을 가진 모든 요소에 chrome.i18n.getMessage()로 텍스트를 채웁니다.
  * SVG 등 자식 요소가 있는 경우 textContent 대신 텍스트 노드를 append합니다.
  */
+function applyVersion(): void {
+  const versionDisplay = document.getElementById("version-display");
+  if (versionDisplay) {
+    versionDisplay.textContent = `v${chrome.runtime.getManifest().version}`;
+  }
+}
+
 function applyI18n(): void {
   document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n")!;
@@ -109,6 +116,7 @@ basePathInput.addEventListener("keydown", (e: KeyboardEvent) => {
 
 // 초기 로드
 document.addEventListener("DOMContentLoaded", () => {
+  applyVersion();
   applyI18n();
   loadSettings();
 });
