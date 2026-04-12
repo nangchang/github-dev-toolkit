@@ -11,6 +11,27 @@ const statusMsg = document.getElementById("status-msg") as HTMLDivElement;
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
+ * [data-i18n] 속성을 가진 모든 요소에 chrome.i18n.getMessage()로 텍스트를 채웁니다.
+ * SVG 등 자식 요소가 있는 경우 textContent 대신 텍스트 노드를 append합니다.
+ */
+function applyI18n(): void {
+  document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => {
+    const key = el.getAttribute("data-i18n")!;
+    const message = chrome.i18n.getMessage(key);
+    if (!message) return;
+    if (el.children.length > 0) {
+      // SVG 등 자식 요소 보존, 기존 텍스트 노드만 교체
+      Array.from(el.childNodes)
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .forEach((n) => n.parentNode?.removeChild(n));
+      el.appendChild(document.createTextNode(` ${message}`));
+    } else {
+      el.textContent = message;
+    }
+  });
+}
+
+/**
  * chrome.storage.sync에서 사용자 설정을 불러와 UI에 반영합니다.
  * sync storage를 사용해 같은 Chrome 프로필의 여러 브라우저에서 설정을 공유합니다.
  */
@@ -33,13 +54,13 @@ async function saveSettings(): Promise<void> {
 
   // 기본 경로 유효성 검사
   if (!basePath) {
-    showStatus("워크스페이스 기본 경로를 입력해주세요.", "error");
+    showStatus(chrome.i18n.getMessage("errorEmptyPath"), "error");
     basePathInput.focus();
     return;
   }
 
   if (!basePath.startsWith("/")) {
-    showStatus("경로는 /로 시작하는 절대 경로여야 합니다.", "error");
+    showStatus(chrome.i18n.getMessage("errorInvalidPath"), "error");
     basePathInput.focus();
     return;
   }
@@ -54,12 +75,12 @@ async function saveSettings(): Promise<void> {
 
   // 버튼 성공 상태 피드백
   saveBtn.classList.add("success");
-  saveBtnText.textContent = "저장 완료!";
-  showStatus(`✅ 설정이 저장되었습니다. IDE: ${IDE_URI_SCHEMES[settings.ide]}`, "success");
+  saveBtnText.textContent = chrome.i18n.getMessage("btnSaved");
+  showStatus(chrome.i18n.getMessage("statusSaved", [IDE_URI_SCHEMES[settings.ide]]), "success");
 
   setTimeout(() => {
     saveBtn.classList.remove("success");
-    saveBtnText.textContent = "설정 저장";
+    saveBtnText.textContent = chrome.i18n.getMessage("btnSave");
   }, 2000);
 }
 
@@ -87,4 +108,7 @@ basePathInput.addEventListener("keydown", (e: KeyboardEvent) => {
 });
 
 // 초기 로드
-document.addEventListener("DOMContentLoaded", loadSettings);
+document.addEventListener("DOMContentLoaded", () => {
+  applyI18n();
+  loadSettings();
+});

@@ -1,0 +1,57 @@
+{
+  "extDescription": {
+    "message": "GitHub 개발 워크플로우를 강화하는 크롬 확장 프로그램. 파일을 클릭 한 번으로 VS Code에서 바로 열 수 있습니다."
+  },
+  "labelEditor": {
+    "message": "에디터 / IDE"
+  },
+  "labelBasePath": {
+    "message": "워크스페이스 기본 경로"
+  },
+  "hintBasePath": {
+    "message": "레포지토리들이 클론된 부모 폴더 경로"
+  },
+  "hintBasePathExample": {
+    "message": "(예: /User/home/Github)"
+  },
+  "btnSave": {
+    "message": "설정 저장"
+  },
+  "btnSaved": {
+    "message": "저장 완료!"
+  },
+  "statusSaved": {
+    "message": "✅ 설정이 저장되었습니다. IDE: $IDE$",
+    "placeholders": {
+      "ide": { "content": "$1" }
+    }
+  },
+  "errorEmptyPath": {
+    "message": "워크스페이스 기본 경로를 입력해주세요."
+  },
+  "errorInvalidPath": {
+    "message": "경로는 /로 시작하는 절대 경로여야 합니다."
+  },
+  "footerHint": {
+    "message": "GitHub 파일 뷰에서 \"Open in IDE\" 버튼을 확인하세요."
+  },
+  "btnOpenInIde": {
+    "message": "$IDE_NAME$에서 열기",
+    "placeholders": {
+      "ide_name": { "content": "$1" }
+    }
+  },
+  "tooltipOpenInIde": {
+    "message": "$IDE_NAME$에서 열기: $FILE_PATH$",
+    "placeholders": {
+      "ide_name": { "content": "$1" },
+      "file_path": { "content": "$2" }
+    }
+  },
+  "btnConfigureIde": {
+    "message": "IDE 설정하기"
+  },
+  "tooltipUnconfigured": {
+    "message": "GitHub Dev Toolkit: 확장 프로그램 팝업에서 기본 경로와 IDE를 설정해주세요."
+  }
+}
