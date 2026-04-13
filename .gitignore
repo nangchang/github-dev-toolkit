@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 
+# Release artifacts
+*.zip
+
 # Environment and local config
 .env
 .env.*
@@ -26,6 +29,7 @@ Thumbs.db
 
 # Claude Code
 CLAUDE.md
+.claude/
 
 # Editor and tool state
 .idea/
