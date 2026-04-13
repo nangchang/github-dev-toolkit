@@ -229,6 +229,28 @@ function resolveBlobFilePath(owner: string, repo: string, tailSegments: string[]
 // ============================================================
 
 /**
+ * 텍스트가 파일 경로처럼 보이는지 검사합니다.
+ * 허용 조건: 공백·URL·특수문자 없음, 파일 확장자 보유
+ *   - 슬래시 포함 → 하위 경로 파일 (예: src/foo.ts)
+ *   - 슬래시 없음 + 확장자 있음 → 루트 파일 (예: package.json, tsconfig.json)
+ * @returns 정규화된 파일 경로 또는 null
+ */
+function detectFilePath(text: string): string | null {
+  if (!text || text.length > 300 || text.includes("\n") || /\s/.test(text)) return null;
+  // URL 및 npm 스코프 패키지 제외
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text) || text.startsWith("@")) return null;
+  // 슬래시도 없고 점도 없으면 파일 경로로 보기 어려움
+  if (!text.includes("/") && !text.includes(".")) return null;
+  // 허용 문자: 영숫자, 점, 하이픈, 언더스코어, 슬래시
+  if (!/^[a-zA-Z0-9._\-/]+$/.test(text)) return null;
+  // 마지막 segment에 파일 확장자 필수
+  const lastSegment = text.split("/").filter(Boolean).pop() ?? "";
+  if (!/\.[a-zA-Z0-9]{1,10}$/.test(lastSegment)) return null;
+
+  return normalizeFilePathCandidate(text);
+}
+
+/**
  * 현재 GitHub URL에서 오너(owner), 레포지토리(repo), 파일 경로(filePath)를 파싱합니다.
  * 예: https://github.com/user/my-repo/blob/main/src/index.ts
  *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts" }
@@ -300,6 +322,84 @@ function buildIdeUri(
 // ============================================================
 
 /**
+ * GitHub PR diff 앵커(#diff-{hash}[LR]{line})에서 라인 번호를 파싱합니다.
+ * R(신규 파일 기준)을 우선하고, 없으면 L(원본 기준)을 사용합니다.
+ */
+function parseLineFromDiffAnchor(href: string): number | null {
+  try {
+    const hash = new URL(href, window.location.href).hash;
+    if (!hash.includes("diff-")) return null;
+    const r = hash.match(/R(\d+)/);
+    if (r) return parseInt(r[1], 10);
+    const l = hash.match(/L(\d+)/);
+    if (l) return parseInt(l[1], 10);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 리뷰 스레드에서 코멘트가 달린 라인 번호를 탐색합니다.
+ *
+ * 파일 경로 링크의 href는 라인 번호 없이 #diff-{hash} 만 포함하는 경우가 많습니다.
+ * 실제 라인 정보는 같은 스레드 내 다른 요소에 있으므로, 링크의 조상을 타고 올라가며
+ * 형제 요소들에서 다음 세 가지 방법으로 라인 번호를 탐색합니다.
+ *
+ *   1. diff 셀 id — id="diff-{hash}R{line}" 또는 "L{line}"
+ *   2. data-line-number 속성 — <td data-line-number="240">
+ *   3. "Comment on lines N" 텍스트 — GitHub이 스레드에 표시하는 코드 범위 안내 문구
+ *   4. 다른 diff anchor 링크의 href — "Comment on lines" 요소가 링크인 경우
+ */
+function findReviewLineNumber(link: HTMLAnchorElement): number | null {
+  // 링크 href에 라인 번호가 직접 포함된 경우 (가장 빠른 경로)
+  const fromHref = parseLineFromDiffAnchor(link.href);
+  if (fromHref !== null) return fromHref;
+
+  // 링크의 조상을 타고 올라가며 형제 서브트리에서 탐색 (최대 12레벨)
+  let el: Element | null = link.parentElement;
+  for (let depth = 0; depth < 12 && el; depth++, el = el.parentElement) {
+    for (let i = 0; i < el.children.length; i++) {
+      const sibling = el.children[i];
+      // 링크 자신을 포함하는 요소는 제외
+      if (sibling.contains(link)) continue;
+
+      // 전략 1: id="diff-...R{n}" or "diff-...L{n}" 형태의 요소
+      const diffCells = sibling.querySelectorAll<HTMLElement>('[id^="diff-"]');
+      for (let j = 0; j < diffCells.length; j++) {
+        const cell = diffCells[j];
+        const r = cell.id.match(/R(\d+)/);
+        if (r) return parseInt(r[1], 10);
+        const l = cell.id.match(/L(\d+)/);
+        if (l) return parseInt(l[1], 10);
+      }
+
+      // 전략 2: data-line-number 속성
+      const lineEl = sibling.querySelector<HTMLElement>("[data-line-number]");
+      if (lineEl) {
+        const n = parseInt(lineEl.getAttribute("data-line-number") ?? "");
+        if (!isNaN(n) && n > 0) return n;
+      }
+
+      // 전략 3: "Comment on lines N" / "Comment on line N" 텍스트
+      const sibText = sibling.textContent ?? "";
+      const textMatch = sibText.match(/[Cc]omment on lines?\s+[+-]?(\d+)/);
+      if (textMatch) return parseInt(textMatch[1], 10);
+
+      // 전략 4: 형제 안의 diff anchor 링크 href
+      const diffAnchors = sibling.querySelectorAll<HTMLAnchorElement>('a[href*="#diff-"]');
+      for (let j = 0; j < diffAnchors.length; j++) {
+        const a = diffAnchors[j];
+        const line = parseLineFromDiffAnchor(a.href);
+        if (line !== null) return line;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * "Open in IDE" 버튼 엘리먼트를 생성합니다.
  * @param compact - true이면 아이콘만 표시 (PR diff 뷰용)
  */
@@ -364,7 +464,10 @@ function createOpenButton(
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    const currentLineNumber = parseLineNumber(window.location.hash);
+    // compact 모드(PR diff 헤더, 코멘트 버튼): 전달받은 lineNumber를 고정 사용
+    //   → blob URL에 포함된 #L123 등이 현재 페이지 hash에 덮어써지는 것을 방지
+    // 파일 뷰 (non-compact): 현재 URL hash에서 최신 라인 번호를 동적으로 읽음
+    const currentLineNumber = compact ? lineNumber : parseLineNumber(window.location.hash);
     const uri = buildIdeUri(settings.ide, absolutePath, currentLineNumber);
     window.location.href = uri;
   });
@@ -419,6 +522,9 @@ async function injectButtons(): Promise<void> {
 
   // 3. PR Files Changed 뷰 - Preview UX (Try new experience, /changes)
   injectIntoPrPreviewUx(settings);
+
+  // 4. PR 인라인 리뷰 코멘트 스레드 헤더의 파일 경로 옆에 버튼 삽입
+  injectIntoPrReviewThreadHeaders(settings);
 }
 
 /**
@@ -635,6 +741,85 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
     } else {
       actionsGroup.appendChild(btn);
     }
+  });
+}
+
+/**
+ * PR 인라인 리뷰 코멘트 스레드 헤더의 파일 경로 옆에 "IDE에서 열기" 버튼을 삽입합니다.
+ *
+ * GitHub 리뷰 스레드 헤더 링크의 특징:
+ *   - href에 #diff- 앵커 포함 (PR diff 위치 지시자)
+ *   - 텍스트 내용이 파일 경로 형태 (슬래시 포함, 공백 없음)
+ *   - 코멘트 본문 / 파일 헤더 내부가 아닌 위치
+ *
+ * GitHub는 UI 버전에 따라 다른 클래스명을 사용하므로 클래스 대신
+ * href 패턴과 텍스트 내용으로 파일 경로 링크를 식별합니다.
+ *
+ * 탐색 전략 (우선순위 순):
+ *   1. a[href*="#diff-"]               — PR diff anchor 링크 (가장 신뢰성 높음)
+ *   2. .review-thread-header a          — 구버전 클래식 UI
+ *   3. [class*="review-thread"] a       — CSS 모듈 변형 클래스
+ *   4. .js-resolvable-thread-contents a — 클래식 UI 스레드 컨테이너
+ */
+function injectIntoPrReviewThreadHeaders(settings: UserSettings | null): void {
+  if (!/\/pull\/\d+/.test(window.location.pathname)) return;
+
+  const prInfo = parseGitHubPrUrl(window.location.href);
+  if (!prInfo) return;
+
+  // 여러 선택자 전략을 한 번에 병합해 후보 링크 수집
+  const candidateLinks = document.querySelectorAll<HTMLAnchorElement>(
+    [
+      'a[href*="#diff-"]',
+      ".review-thread-header a",
+      "[class*='review-thread'] a",
+      ".js-resolvable-thread-contents > * > a",
+      ".js-resolvable-thread-contents > * > * > a",
+    ].join(", ")
+  );
+
+  // 버튼을 삽입하면 안 되는 영역 (코멘트 본문, 기존 파일 헤더 등)
+  const excludeSelector = [
+    ".comment-body", ".js-comment-body",
+    ".markdown-body", "[class*='markdown-body']",
+    ".file-header", ".js-file-header", "[class*='diff-file-header']",
+    "nav", ".breadcrumb", "#repository-container-header",
+  ].join(", ");
+
+  candidateLinks.forEach((link) => {
+    const text = detectFilePath(link.textContent?.trim() ?? "");
+
+    // 파일 경로가 아니면 건너뜀
+    if (!text) return;
+
+    // 제외 영역 안이면 건너뜀
+    if (link.closest(excludeSelector)) return;
+
+    // 이미 처리된 링크 건너뜀
+    if (link.dataset.gdtProcessed) return;
+    link.dataset.gdtProcessed = "true";
+
+    // 코멘트가 달린 라인 번호 탐색 (링크 href → DOM 상향 순회 순서로 시도)
+    const lineNumber = findReviewLineNumber(link);
+
+    let btn: HTMLAnchorElement;
+    if (settings && settings.basePath) {
+      const absolutePath = `${settings.basePath}/${prInfo.repo}/${text}`;
+      btn = createOpenButton(settings, absolutePath, lineNumber, true);
+    } else {
+      btn = createUnconfiguredButton(true);
+    }
+    btn.classList.add(INJECTED_MARKER, "gdt-comment-btn");
+
+    // 삽입 위치 결정:
+    // - 링크 다음 형제가 "Outdated" 뱃지면 그 뒤에 삽입 (뱃지와 버튼이 붙어 있게)
+    // - 없으면 링크 바로 뒤에 삽입
+    let anchor: Element = link;
+    const nextEl = link.nextElementSibling;
+    if (nextEl && /^outdated$/i.test(nextEl.textContent?.trim() ?? "")) {
+      anchor = nextEl;
+    }
+    anchor.insertAdjacentElement("afterend", btn);
   });
 }
 
