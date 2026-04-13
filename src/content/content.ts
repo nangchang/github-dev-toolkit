@@ -359,13 +359,15 @@ function findReviewLineNumber(link: HTMLAnchorElement): number | null {
   // 링크의 조상을 타고 올라가며 형제 서브트리에서 탐색 (최대 12레벨)
   let el: Element | null = link.parentElement;
   for (let depth = 0; depth < 12 && el; depth++, el = el.parentElement) {
-    for (const sibling of Array.from(el.children)) {
+    for (let i = 0; i < el.children.length; i++) {
+      const sibling = el.children[i];
       // 링크 자신을 포함하는 요소는 제외
       if (sibling.contains(link)) continue;
 
       // 전략 1: id="diff-...R{n}" or "diff-...L{n}" 형태의 요소
-      for (const cell of Array.from(sibling.querySelectorAll<HTMLElement>("[id]"))) {
-        if (!cell.id.startsWith("diff-")) continue;
+      const diffCells = sibling.querySelectorAll<HTMLElement>('[id^="diff-"]');
+      for (let j = 0; j < diffCells.length; j++) {
+        const cell = diffCells[j];
         const r = cell.id.match(/R(\d+)/);
         if (r) return parseInt(r[1], 10);
         const l = cell.id.match(/L(\d+)/);
@@ -385,7 +387,9 @@ function findReviewLineNumber(link: HTMLAnchorElement): number | null {
       if (textMatch) return parseInt(textMatch[1], 10);
 
       // 전략 4: 형제 안의 diff anchor 링크 href
-      for (const a of Array.from(sibling.querySelectorAll<HTMLAnchorElement>('a[href*="#diff-"]'))) {
+      const diffAnchors = sibling.querySelectorAll<HTMLAnchorElement>('a[href*="#diff-"]');
+      for (let j = 0; j < diffAnchors.length; j++) {
+        const a = diffAnchors[j];
         const line = parseLineFromDiffAnchor(a.href);
         if (line !== null) return line;
       }
@@ -763,14 +767,16 @@ function injectIntoPrReviewThreadHeaders(settings: UserSettings | null): void {
   const prInfo = parseGitHubPrUrl(window.location.href);
   if (!prInfo) return;
 
-  // 여러 선택자 전략을 병합해 후보 링크 수집
-  const candidateLinks = new Set<HTMLAnchorElement>([
-    ...document.querySelectorAll<HTMLAnchorElement>('a[href*="#diff-"]'),
-    ...document.querySelectorAll<HTMLAnchorElement>(".review-thread-header a"),
-    ...document.querySelectorAll<HTMLAnchorElement>("[class*='review-thread'] a"),
-    ...document.querySelectorAll<HTMLAnchorElement>(".js-resolvable-thread-contents > * > a"),
-    ...document.querySelectorAll<HTMLAnchorElement>(".js-resolvable-thread-contents > * > * > a"),
-  ]);
+  // 여러 선택자 전략을 한 번에 병합해 후보 링크 수집
+  const candidateLinks = document.querySelectorAll<HTMLAnchorElement>(
+    [
+      'a[href*="#diff-"]',
+      ".review-thread-header a",
+      "[class*='review-thread'] a",
+      ".js-resolvable-thread-contents > * > a",
+      ".js-resolvable-thread-contents > * > * > a",
+    ].join(", ")
+  );
 
   // 버튼을 삽입하면 안 되는 영역 (코멘트 본문, 기존 파일 헤더 등)
   const excludeSelector = [
@@ -781,11 +787,10 @@ function injectIntoPrReviewThreadHeaders(settings: UserSettings | null): void {
   ].join(", ");
 
   candidateLinks.forEach((link) => {
-    const text = link.textContent?.trim() ?? "";
+    const text = detectFilePath(link.textContent?.trim() ?? "");
 
-    // 파일 경로 조건: 슬래시 포함, 공백 없음, 300자 이하
-    if (!text || /\s/.test(text) || text.length > 300) return;
-    if (!text.includes("/")) return;
+    // 파일 경로가 아니면 건너뜀
+    if (!text) return;
 
     // 제외 영역 안이면 건너뜀
     if (link.closest(excludeSelector)) return;
