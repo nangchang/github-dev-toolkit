@@ -756,7 +756,7 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
  * href 패턴과 텍스트 내용으로 파일 경로 링크를 식별합니다.
  *
  * 탐색 전략 (우선순위 순):
- *   1. a[href*="#diff-"]               — PR diff anchor 링크 (가장 신뢰성 높음)
+ *   1. summary div span a[href*="#diff-"] — PR diff anchor 링크 (가장 신뢰성 높음)
  *   2. .review-thread-header a          — 구버전 클래식 UI
  *   3. [class*="review-thread"] a       — CSS 모듈 변형 클래스
  *   4. .js-resolvable-thread-contents a — 클래식 UI 스레드 컨테이너
@@ -770,7 +770,7 @@ function injectIntoPrReviewThreadHeaders(settings: UserSettings | null): void {
   // 여러 선택자 전략을 한 번에 병합해 후보 링크 수집
   const candidateLinks = document.querySelectorAll<HTMLAnchorElement>(
     [
-      'a[href*="#diff-"]',
+      'summary div span a[href*="#diff-"]',
       ".review-thread-header a",
       "[class*='review-thread'] a",
       ".js-resolvable-thread-contents > * > a",
