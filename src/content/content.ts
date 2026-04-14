@@ -375,10 +375,23 @@ function findReviewLineNumber(link: HTMLAnchorElement): number | null {
       }
 
       // 전략 2: data-line-number 속성
-      const lineEl = sibling.querySelector<HTMLElement>("[data-line-number]");
-      if (lineEl) {
-        const n = parseInt(lineEl.getAttribute("data-line-number") ?? "");
-        if (!isNaN(n) && n > 0) return n;
+      const lineEl = sibling.querySelectorAll<HTMLElement>("[data-line-number]");
+      let firstContextLine = 0;
+      for (let j = 0; j < lineEl.length; ++j) {
+        if (!firstContextLine && lineEl[j].className.includes("blob-num-context")) {
+          // 코멘트가 달린 주변의 라인 번호
+          firstContextLine = parseInt(lineEl[j].getAttribute("data-line-number") ?? "");
+        }
+
+        // 실제 변경된 라인 번호만 가져오기
+        if (lineEl[j].className.includes("blob-num-addition") || lineEl[j].className.includes("blob-num-deletion")) {
+          const n = parseInt(lineEl[j].getAttribute("data-line-number") ?? "");
+          if (!isNaN(n) && n > 0) return n;
+        }
+      }
+      // 변경 라인이 없으면 첫번째 context 라인 반환
+      if (!isNaN(firstContextLine) && firstContextLine > 0) {
+        return firstContextLine;
       }
 
       // 전략 3: "Comment on lines N" / "Comment on line N" 텍스트
