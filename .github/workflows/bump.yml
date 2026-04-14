@@ -1,0 +1,44 @@
+name: Version Bump
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  bump:
+    name: Bump version files to match tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump package.json and manifest.json
+        id: bump
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --indent 2 --arg v "$VERSION" '.version = $v' package.json  > _tmp.json && mv _tmp.json package.json
+          jq --indent 2 --arg v "$VERSION" '.version = $v' manifest.json > _tmp.json && mv _tmp.json manifest.json
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Versions already at ${VERSION} — no commit needed."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat
+          fi
+
+      - name: Commit, push, and retag at bump commit
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json manifest.json
+          git commit -m "chore: bump version to ${GITHUB_REF_NAME#v}"
+          git push origin HEAD:${{ github.event.repository.default_branch }}
+          git tag -f "$GITHUB_REF_NAME"
+          git push origin -f "refs/tags/$GITHUB_REF_NAME"
