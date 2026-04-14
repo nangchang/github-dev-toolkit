@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GitHub Dev Toolkit",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "default_locale": "en",
   "description": "__MSG_extDescription__",
   "icons": {
@@ -21,9 +21,15 @@
   ],
   "content_scripts": [
     {
-      "matches": ["*://github.com/*"],
-      "js": ["content/content.js"],
-      "css": ["content/content.css"],
+      "matches": [
+        "*://github.com/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ],
       "run_at": "document_idle"
     }
   ],
