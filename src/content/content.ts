@@ -351,10 +351,12 @@ function parseLineFromDiffAnchor(href: string): number | null {
  *   3. "Comment on lines N" 텍스트 — GitHub이 스레드에 표시하는 코드 범위 안내 문구
  *   4. 다른 diff anchor 링크의 href — "Comment on lines" 요소가 링크인 경우
  */
-function findReviewLineNumber(link: HTMLAnchorElement): number | null {
+function findReviewLineNumber(link: HTMLElement): number | null {
   // 링크 href에 라인 번호가 직접 포함된 경우 (가장 빠른 경로)
-  const fromHref = parseLineFromDiffAnchor(link.href);
-  if (fromHref !== null) return fromHref;
+  if (link instanceof HTMLAnchorElement) {
+    const fromHref = parseLineFromDiffAnchor(link.href);
+    if (fromHref !== null) return fromHref;
+  }
 
   // 링크의 조상을 타고 올라가며 형제 서브트리에서 탐색 (최대 12레벨)
   let el: Element | null = link.parentElement;
@@ -381,11 +383,16 @@ function findReviewLineNumber(link: HTMLAnchorElement): number | null {
         const n = parseInt(el.dataset.lineNumber ?? "", 10);
         if (isNaN(n) || n <= 0) continue;
 
-        if (!firstContextLine && el.classList.contains("blob-num-context")) {
+        if (!firstContextLine) {
           firstContextLine = n;
         }
 
-        if (el.classList.contains("blob-num-addition") || el.classList.contains("blob-num-deletion")) {
+        if ((el.classList.contains("blob-num-addition") ||
+          el.classList.contains("blob-num-deletion")) ||
+          // PR Preview UX
+          (el.classList.contains("new-diff-line-number") &&
+            !el.classList.contains("diff-line-number-neutral") &&
+            !el.classList.contains("empty-diff-line"))) {
           return n;
         }
       }
@@ -736,10 +743,12 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
     const actionsGroup = headerRow.lastElementChild as HTMLElement | null;
     if (!actionsGroup) return;
 
+    const lineNumber = findReviewLineNumber(headerRow);
+
     let btn: HTMLAnchorElement;
     if (settings && settings.basePath) {
       const absolutePath = `${settings.basePath}/${prInfo.repo}/${filePath}`;
-      btn = createOpenButton(settings, absolutePath, null, true);
+      btn = createOpenButton(settings, absolutePath, lineNumber, true);
     } else {
       btn = createUnconfiguredButton(true);
     }
