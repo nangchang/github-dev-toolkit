@@ -340,7 +340,7 @@ function parseLineFromDiffAnchor(href: string): number | null {
 }
 
 /**
- * 리뷰 스레드에서 코멘트가 달린 라인 번호를 탐색합니다.
+ * 리뷰 스레드 또는 파일 헤더 주변 DOM에서 관련 라인 번호를 탐색합니다.
  *
  * 파일 경로 링크의 href는 라인 번호 없이 #diff-{hash} 만 포함하는 경우가 많습니다.
  * 실제 라인 정보는 같은 스레드 내 다른 요소에 있으므로, 링크의 조상을 타고 올라가며
@@ -351,16 +351,16 @@ function parseLineFromDiffAnchor(href: string): number | null {
  *   3. "Comment on lines N" 텍스트 — GitHub이 스레드에 표시하는 코드 범위 안내 문구
  *   4. 다른 diff anchor 링크의 href — "Comment on lines" 요소가 링크인 경우
  */
-function findReviewLineNumber(link: HTMLElement): number | null {
+function findReviewLineNumber(link: HTMLElement, maxAncestorDepth: number = 12): number | null {
   // 링크 href에 라인 번호가 직접 포함된 경우 (가장 빠른 경로)
   if (link instanceof HTMLAnchorElement) {
     const fromHref = parseLineFromDiffAnchor(link.href);
     if (fromHref !== null) return fromHref;
   }
 
-  // 링크의 조상을 타고 올라가며 형제 서브트리에서 탐색 (최대 12레벨)
+  // 링크의 조상을 타고 올라가며 형제 서브트리에서 탐색
   let el: Element | null = link.parentElement;
-  for (let depth = 0; depth < 12 && el; depth++, el = el.parentElement) {
+  for (let depth = 0; depth < maxAncestorDepth && el; depth++, el = el.parentElement) {
     for (let i = 0; i < el.children.length; i++) {
       const sibling = el.children[i];
       // 링크 자신을 포함하는 요소는 제외
@@ -379,20 +379,20 @@ function findReviewLineNumber(link: HTMLElement): number | null {
       // 전략 2: data-line-number 속성
       const lineElements = sibling.querySelectorAll<HTMLElement>("[data-line-number]");
       let firstContextLine = 0;
-      for (const el of lineElements) {
-        const n = parseInt(el.dataset.lineNumber ?? "", 10);
+      for (const lineEl of lineElements) {
+        const n = parseInt(lineEl.dataset.lineNumber ?? "", 10);
         if (isNaN(n) || n <= 0) continue;
 
-        if (!firstContextLine) {
+        if (!firstContextLine && !lineEl.classList.contains("empty-diff-line")) {
           firstContextLine = n;
         }
 
-        if ((el.classList.contains("blob-num-addition") ||
-          el.classList.contains("blob-num-deletion")) ||
+        if ((lineEl.classList.contains("blob-num-addition") ||
+          lineEl.classList.contains("blob-num-deletion")) ||
           // PR Preview UX
-          (el.classList.contains("new-diff-line-number") &&
-            !el.classList.contains("diff-line-number-neutral") &&
-            !el.classList.contains("empty-diff-line"))) {
+          (lineEl.classList.contains("new-diff-line-number") &&
+            !lineEl.classList.contains("diff-line-number-neutral") &&
+            !lineEl.classList.contains("empty-diff-line"))) {
           return n;
         }
       }
@@ -743,7 +743,9 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
     const actionsGroup = headerRow.lastElementChild as HTMLElement | null;
     if (!actionsGroup) return;
 
-    const lineNumber = findReviewLineNumber(headerRow);
+    // Preview UX 파일 헤더에서는 현재 파일 컨테이너 범위까지만 탐색해
+    // 인접 파일의 라인 번호를 잘못 가져오지 않도록 제한합니다.
+    const lineNumber = findReviewLineNumber(headerRow, 1);
 
     let btn: HTMLAnchorElement;
     if (settings && settings.basePath) {
