@@ -7,6 +7,12 @@ import { SupportedIDE, UserSettings, IDE_URI_SCHEMES, IDE_DISPLAY_NAMES } from "
 /** 버튼이 이미 삽입됐음을 표시하는 CSS 클래스 */
 const INJECTED_MARKER = "gdt-injected";
 
+/** 레포지토리 뷰 버튼이 이미 삽입됐음을 표시하는 CSS 클래스 */
+const REPO_INJECTED_MARKER = "gdt-repo-btn";
+
+/** 파일 트리 행(row) 버튼이 이미 삽입됐음을 표시하는 CSS 클래스 */
+const TREE_ROW_INJECTED_MARKER = "gdt-tree-row-btn";
+
 /** 선택된 라인 번호를 URL에서 파싱하는 정규식 (예: #L42 또는 #L10-L20) */
 const LINE_NUMBER_REGEX = /#L(\d+)(?:-L(\d+))?$/;
 
@@ -73,10 +79,15 @@ function getFilePathFromDocumentTitle(
   repo: string,
   tailSegments: string[]
 ): string | null {
-  const titleSuffix = ` · ${owner}/${repo}`;
-  if (!document.title.endsWith(titleSuffix)) return null;
+  let title = document.title;
+  if (title.endsWith(" · GitHub")) {
+    title = title.slice(0, -" · GitHub".length);
+  }
 
-  const titleBody = document.title.slice(0, -titleSuffix.length);
+  const titleSuffix = ` · ${owner}/${repo}`;
+  if (!title.endsWith(titleSuffix)) return null;
+
+  const titleBody = title.slice(0, -titleSuffix.length);
   const refSeparatorIndex = titleBody.lastIndexOf(" at ");
   if (refSeparatorIndex === -1) return null;
 
@@ -252,26 +263,58 @@ function detectFilePath(text: string): string | null {
 
 /**
  * 현재 GitHub URL에서 오너(owner), 레포지토리(repo), 파일 경로(filePath)를 파싱합니다.
+ * blob, raw, tree(폴더) 모두 지원합니다. root 레포 경로인 경우 filePath는 부재(빈 문자열)합니다.
  * 예: https://github.com/user/my-repo/blob/main/src/index.ts
  *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts" }
  */
-function parseGitHubBlobUrl(url: string): { owner: string; repo: string; filePath: string } | null {
+function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string } | null {
   try {
     const urlObj = new URL(url);
     const segments = getDecodedPathSegments(urlObj.pathname);
     const [owner, repo, kind, ...tailSegments] = segments;
-    if (!owner || !repo || !["blob", "raw"].includes(kind) || tailSegments.length < 2) {
+    
+    if (!owner || !repo) return null;
+    
+    // 루트 경로인 경우
+    if (segments.length === 2) {
+      return { owner, repo, filePath: "" };
+    }
+
+    if (!["blob", "raw", "tree"].includes(kind)) {
       return null;
     }
 
+    // /tree/{branch} 등 파일/폴더 경로가 비어있는 루트의 특정 브랜치인 경우
     const filePath = resolveBlobFilePath(owner, repo, tailSegments);
-    if (!filePath) return null;
-
     return {
       owner,
       repo,
-      filePath,
+      filePath: filePath || "",
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GitHub 레포지토리 메인 페이지(루트) 또는 트리 뷰 URL을 파싱합니다.
+ * 대상: github.com/{owner}/{repo}  또는  github.com/{owner}/{repo}/tree/...
+ * 비대상: blob, pull, issues, commits 등 세부 경로는 null 반환.
+ * 예: https://github.com/user/my-repo        → { owner: "user", repo: "my-repo" }
+ *     https://github.com/user/my-repo/tree/main/src → { owner: "user", repo: "my-repo" }
+ */
+function parseGitHubRepoUrl(url: string): { owner: string; repo: string } | null {
+  try {
+    const { pathname } = new URL(url);
+    const segments = getDecodedPathSegments(pathname);
+    if (segments.length < 2) return null;
+
+    const [owner, repo, kind] = segments;
+    // 레포 루트(세그먼트 2개) 또는 트리 뷰(/tree/...)만 대상으로 합니다.
+    if (segments.length === 2 || kind === "tree") {
+      return { owner, repo };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -534,17 +577,115 @@ function createUnconfiguredButton(compact: boolean = false): HTMLAnchorElement {
 async function injectButtons(): Promise<void> {
   const settings = await loadSettings();
 
-  // 1. 일반 파일 뷰 (github.com/user/repo/blob/...) 처리
+  // 0. 레포지토리 메인 / 트리 뷰 상단 - 레포 전체를 IDE에서 열기
+  injectIntoRepoView(settings);
+
+  // 1. 트리 뷰(목록) - 각 파일/폴더 행마다 버튼 삽입
+  injectIntoFileTreeRows(settings);
+
+  // 2. 일반 파일 뷰 (github.com/user/repo/blob/...) 처리
   injectIntoFileView(settings);
 
-  // 2. PR Files Changed 뷰 - 기존 UX (github.com/.../pull/.../files)
+  // 3. PR Files Changed 뷰 - 기존 UX (github.com/.../pull/.../files)
   injectIntoPrFilesView(settings);
 
-  // 3. PR Files Changed 뷰 - Preview UX (Try new experience, /changes)
+  // 4. PR Files Changed 뷰 - Preview UX (Try new experience, /changes)
   injectIntoPrPreviewUx(settings);
 
-  // 4. PR 인라인 리뷰 코멘트 스레드 헤더의 파일 경로 옆에 버튼 삽입
+  // 5. PR 인라인 리뷰 코멘트 스레드 헤더의 파일 경로 옆에 버튼 삽입
   injectIntoPrReviewThreadHeaders(settings);
+
+  // 6. PR 페이지 - Checkout 명령어 복사 버튼
+  injectPrCheckoutButton();
+}
+
+/**
+ * GitHub 레포지토리 메인 페이지(루트) 및 트리 뷰에 "IDE에서 열기" 버튼을 삽입합니다.
+ *
+ * GitHub 레포 메인 DOM 구조 (현재 React 기반):
+ * - 루트(/): <button><span>Code</span></button>
+ * - 트리(/tree): <button><span>Add file</span></button>
+ *
+ * 전략: 내부에 "Code" 또는 "Add file" 텍스트를 가진 버튼을 찾아 바로 앞에 삽입합니다.
+ * 클릭 시 열리는 경로: {basePath}/{repo} (레포 전체)
+ */
+function injectIntoRepoView(settings: UserSettings | null): void {
+  // 이미 삽입된 경우 스킵
+  if (document.querySelector(`.${REPO_INJECTED_MARKER}`)) return;
+
+  // 레포 루트 또는 트리 뷰인지 확인
+  const repoInfo = parseGitHubRepoUrl(window.location.href);
+  if (!repoInfo) return;
+
+  // GitHub의 "Code" 버튼 탐색 ("Add file" 은 건드리지 않음)
+  const codeBtn = Array.from(
+    document.querySelectorAll<HTMLElement>('button, summary')
+  ).find((el) => el.textContent?.trim() === "Code");
+
+  if (!codeBtn) return;
+
+  // summary 요소이면 부모 <details> 기준으로 삽입 위치 결정
+  const insertTarget = codeBtn.tagName === "SUMMARY"
+    ? (codeBtn.closest("details") ?? codeBtn)
+    : codeBtn;
+  if (!insertTarget.parentElement) return;
+
+  let btn: HTMLAnchorElement;
+  if (settings && settings.basePath) {
+    const absolutePath = `${settings.basePath}/${repoInfo.repo}`;
+    btn = createOpenButton(settings, absolutePath, null, true);
+  } else {
+    btn = createUnconfiguredButton(true);
+  }
+
+  btn.classList.add(REPO_INJECTED_MARKER);
+
+  // "Code" 버튼 바로 앞에 삽입 → [Add file] [우리 버튼] [Code] 순서 유지
+  insertTarget.parentElement.insertBefore(btn, insertTarget);
+}
+
+/**
+ * 트리 뷰의 파일 목록(목록 뷰)에서 각 파일/폴더 행 우측이나 파일명 옆에 IDE 열기 버튼을 삽입합니다.
+ *
+ * 클래스명 기반 셀렉터 대신 href 기반으로 파일/폴더 링크를 직접 탐색하여
+ * GitHub UI 변경에 강인하게 동작합니다.
+ */
+function injectIntoFileTreeRows(settings: UserSettings | null): void {
+  const pageInfo = parseGitHubUrl(window.location.href);
+  if (!pageInfo) return;
+
+  // 현재 레포의 파일/폴더 링크를 href 기반으로 탐색 (클래스명 불필요)
+  const ownerRepo = `/${pageInfo.owner}/${pageInfo.repo}/`;
+  // 파일(blob)만 대상 — 폴더(tree)는 제외
+  const fileLinks = document.querySelectorAll<HTMLAnchorElement>(
+    `a[href^="${ownerRepo}blob/"]`
+  );
+
+  fileLinks.forEach((titleLink) => {
+    // 이미 버튼이 삽입됐으면 스킵
+    if (titleLink.nextElementSibling?.classList.contains(TREE_ROW_INJECTED_MARKER)) return;
+
+    const itemName = titleLink.getAttribute("title") || titleLink.textContent?.trim();
+    if (!itemName || itemName === "Go to parent directory" || itemName === "..") return;
+
+    // <tr> 조상이 없으면 파일 트리 행이 아님 (breadcrumb, README 내 링크 등 제외)
+    if (!titleLink.closest("tr, [role='row']")) return;
+
+    const rowFilePath = pageInfo.filePath ? `${pageInfo.filePath}/${itemName}` : itemName;
+    const absolutePath = settings?.basePath ? `${settings.basePath}/${pageInfo.repo}/${rowFilePath}` : "";
+
+    let btn: HTMLAnchorElement;
+    if (settings && settings.basePath) {
+      btn = createOpenButton(settings, absolutePath, null, true);
+    } else {
+      btn = createUnconfiguredButton(true);
+    }
+
+    btn.classList.add(TREE_ROW_INJECTED_MARKER);
+    btn.setAttribute("title", absolutePath ? `${absolutePath} 열기` : "IDE 경로가 설정되지 않았습니다.");
+
+    titleLink.insertAdjacentElement("afterend", btn);
+  });
 }
 
 /**
@@ -573,8 +714,9 @@ function injectIntoFileView(settings: UserSettings | null): void {
   if (document.querySelector(`.${INJECTED_MARKER}`)) return;
 
   // blob 페이지가 아니면 종료
-  const urlInfo = parseGitHubBlobUrl(window.location.href);
-  if (!urlInfo) return;
+  const urlInfo = parseGitHubUrl(window.location.href);
+  // tree, raw 등은 제외하고 오직 blob일 때만 진행
+  if (!urlInfo || !urlInfo.filePath || !window.location.pathname.includes('/blob/')) return;
 
   // Raw 링크를 기준으로 삽입 위치 결정 (구버전/신버전 모두 href에 /raw/ 포함)
   const rawLink = document.querySelector<HTMLElement>('a[href*="/raw/"]');
