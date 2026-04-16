@@ -595,8 +595,6 @@ async function injectButtons(): Promise<void> {
   // 5. PR 인라인 리뷰 코멘트 스레드 헤더의 파일 경로 옆에 버튼 삽입
   injectIntoPrReviewThreadHeaders(settings);
 
-  // 6. PR 페이지 - Checkout 명령어 복사 버튼
-  injectPrCheckoutButton();
 }
 
 /**
@@ -860,28 +858,54 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
   const prInfo = parseGitHubPrUrl(window.location.href);
   if (!prInfo) return;
 
-  // "Expand all lines: <filePath>" aria-label을 가진 버튼으로 파일 헤더를 탐색
-  const expandBtns = document.querySelectorAll<HTMLElement>(
+  // 헤더 탐색: expand 버튼 경유 + 클래스 직접 탐색 (하이픈/언더스코어 두 형태 모두 지원)
+  const headerRowSet = new Set<HTMLElement>();
+  const HEADER_SELECTOR =
+    '[class*="diff-file-header"], [class*="diff_file_header"], [class*="DiffFileHeader"]';
+
+  document.querySelectorAll<HTMLElement>(
     'button[aria-label^="Expand all lines:"], button[aria-label^="Collapse all lines:"]'
-  );
+  ).forEach((btn) => {
+    const h = btn.closest<HTMLElement>(HEADER_SELECTOR);
+    if (h) headerRowSet.add(h);
+  });
 
-  if (expandBtns.length === 0) return;
+  document.querySelectorAll<HTMLElement>(HEADER_SELECTOR).forEach((el) => {
+    // 같은 패턴의 조상이 없는 최상위 헤더만 수집
+    if (!el.parentElement?.closest(HEADER_SELECTOR)) {
+      headerRowSet.add(el);
+    }
+  });
 
-  expandBtns.forEach((expandBtn) => {
-    // aria-label에서 파일 경로 추출
-    const ariaLabel = expandBtn.getAttribute("aria-label") ?? "";
-    const filePath = ariaLabel.replace(/^(?:Expand|Collapse) all lines:\s*/, "").trim();
-    if (!filePath) return;
+  if (headerRowSet.size === 0) return;
 
-    // expandBtn의 조상 중 "diff-file-header" 클래스를 가진 헤더 행 루트 탐색
-    // (DiffFileHeader-module__diff-file-header__* 클래스명 패턴)
-    const headerRow = expandBtn.closest<HTMLElement>('[class*="diff-file-header"]');
-    if (!headerRow) return;
-
-    // 이미 버튼이 삽입된 경우 건너뜀
+  headerRowSet.forEach((headerRow) => {
     if (headerRow.querySelector(`.${INJECTED_MARKER}`)) return;
 
-    // 헤더 행의 마지막 자식 = 우측 액션 버튼 그룹
+    // 파일 경로 추출 전략:
+    // 1순위: expand/collapse 버튼 aria-label
+    // 2순위: 헤더 내 Link--primary 앵커 텍스트 (파일명 전체 경로 포함)
+    let filePath: string | null = null;
+
+    const expandBtn = headerRow.querySelector<HTMLElement>(
+      'button[aria-label^="Expand all lines:"], button[aria-label^="Collapse all lines:"]'
+    );
+    if (expandBtn) {
+      const ariaLabel = expandBtn.getAttribute("aria-label") ?? "";
+      filePath = ariaLabel.replace(/^(?:Expand|Collapse) all lines:\s*/, "").trim() || null;
+    }
+
+    if (!filePath) {
+      // a.Link--primary 텍스트에 전체 파일 경로가 담겨 있음
+      const fileLink = headerRow.querySelector<HTMLAnchorElement>("a.Link--primary");
+      const text = fileLink?.textContent?.trim();
+      if (text && (text.includes("/") || /\.\w+$/.test(text))) {
+        filePath = text;
+      }
+    }
+
+    if (!filePath) return;
+
     const actionsGroup = headerRow.lastElementChild as HTMLElement | null;
     if (!actionsGroup) return;
 
@@ -899,8 +923,6 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
 
     btn.classList.add(INJECTED_MARKER);
 
-    // 우측 액션 그룹의 첫 번째 자식 앞에 삽입
-    // → diff stat 수치 다음, Viewed 버튼 앞 위치
     const firstActionChild = actionsGroup.firstElementChild as HTMLElement | null;
     if (firstActionChild) {
       actionsGroup.insertBefore(btn, firstActionChild);
@@ -948,7 +970,7 @@ function injectIntoPrReviewThreadHeaders(settings: UserSettings | null): void {
   const excludeSelector = [
     ".comment-body", ".js-comment-body",
     ".markdown-body", "[class*='markdown-body']",
-    ".file-header", ".js-file-header", "[class*='diff-file-header']",
+    ".file-header", ".js-file-header", "[class*='diff-file-header']", "[class*='diff_file_header']", "[class*='DiffFileHeader']",
     "nav", ".breadcrumb", "#repository-container-header",
   ].join(", ");
 
