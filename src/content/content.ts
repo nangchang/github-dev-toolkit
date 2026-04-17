@@ -658,6 +658,10 @@ function injectIntoRepoView(settings: UserSettings | null): void {
  * GitHub UI 변경에 강인하게 동작합니다.
  */
 function injectIntoFileTreeRows(settings: UserSettings | null): void {
+  // 트리/루트 뷰에서만 실행 — blob, PR, issues 등 다른 페이지에서는 스킵
+  // blob 페이지의 README나 사이드바 링크가 잘못 매칭되는 것을 방지합니다.
+  if (!parseGitHubRepoUrl(window.location.href)) return;
+
   const pageInfo = parseGitHubUrl(window.location.href);
   if (!pageInfo) return;
 
