@@ -215,8 +215,16 @@ function getCurrentRefName(tailSegments: string[]): string | null {
 /**
  * blob/raw URL의 ref+file tail에서 실제 파일 경로를 복원합니다.
  * 정확도가 높은 단서부터 순서대로 시도하고, 마지막에만 단일 segment ref fallback을 사용합니다.
+ *
+ * @param allowSegmentFallback - false이면 마지막 segment 기반 fallback을 건너뜁니다.
+ *   tree 뷰에서 슬래시 포함 브랜치명이 파일 경로로 잘못 파싱되는 것을 방지할 때 사용합니다.
  */
-function resolveBlobFilePath(owner: string, repo: string, tailSegments: string[]): string | null {
+function resolveBlobFilePath(
+  owner: string,
+  repo: string,
+  tailSegments: string[],
+  allowSegmentFallback: boolean = true
+): string | null {
   const titleFilePath = getFilePathFromDocumentTitle(owner, repo, tailSegments);
   if (titleFilePath) return titleFilePath;
 
@@ -232,6 +240,8 @@ function resolveBlobFilePath(owner: string, repo: string, tailSegments: string[]
   }
 
   // DOM 기반 단서가 없을 때만 사용하는 fallback: 단일 segment 브랜치/태그만 정확합니다.
+  // tree 페이지에서는 슬래시 포함 브랜치명을 잘못 파일 경로로 해석할 수 있으므로 비활성화합니다.
+  if (!allowSegmentFallback) return null;
   return tailSegments.length >= 2 ? tailSegments.slice(1).join("/") : null;
 }
 
@@ -284,8 +294,10 @@ function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: 
       return null;
     }
 
-    // /tree/{branch} 등 파일/폴더 경로가 비어있는 루트의 특정 브랜치인 경우
-    const filePath = resolveBlobFilePath(owner, repo, tailSegments);
+    // tree 뷰는 segment 기반 fallback을 허용하지 않습니다.
+    // 슬래시 포함 브랜치명(/owner/repo/tree/feature/foo)에서 "foo"가
+    // 파일 경로로 잘못 파싱되는 회귀를 방지합니다.
+    const filePath = resolveBlobFilePath(owner, repo, tailSegments, kind !== "tree");
     return {
       owner,
       repo,
