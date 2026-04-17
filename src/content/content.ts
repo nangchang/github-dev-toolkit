@@ -215,8 +215,16 @@ function getCurrentRefName(tailSegments: string[]): string | null {
 /**
  * blob/raw URL의 ref+file tail에서 실제 파일 경로를 복원합니다.
  * 정확도가 높은 단서부터 순서대로 시도하고, 마지막에만 단일 segment ref fallback을 사용합니다.
+ *
+ * @param allowSegmentFallback - false이면 마지막 segment 기반 fallback을 건너뜁니다.
+ *   tree 뷰에서 슬래시 포함 브랜치명이 파일 경로로 잘못 파싱되는 것을 방지할 때 사용합니다.
  */
-function resolveBlobFilePath(owner: string, repo: string, tailSegments: string[]): string | null {
+function resolveBlobFilePath(
+  owner: string,
+  repo: string,
+  tailSegments: string[],
+  allowSegmentFallback: boolean = true
+): string | null {
   const titleFilePath = getFilePathFromDocumentTitle(owner, repo, tailSegments);
   if (titleFilePath) return titleFilePath;
 
@@ -232,6 +240,8 @@ function resolveBlobFilePath(owner: string, repo: string, tailSegments: string[]
   }
 
   // DOM 기반 단서가 없을 때만 사용하는 fallback: 단일 segment 브랜치/태그만 정확합니다.
+  // tree 페이지에서는 슬래시 포함 브랜치명을 잘못 파일 경로로 해석할 수 있으므로 비활성화합니다.
+  if (!allowSegmentFallback) return null;
   return tailSegments.length >= 2 ? tailSegments.slice(1).join("/") : null;
 }
 
@@ -262,12 +272,12 @@ function detectFilePath(text: string): string | null {
 }
 
 /**
- * 현재 GitHub URL에서 오너(owner), 레포지토리(repo), 파일 경로(filePath)를 파싱합니다.
- * blob, raw, tree(폴더) 모두 지원합니다. root 레포 경로인 경우 filePath는 부재(빈 문자열)합니다.
+ * 현재 GitHub URL에서 오너(owner), 레포지토리(repo), 파일 경로(filePath), kind를 파싱합니다.
+ * blob, raw, tree(폴더) 모두 지원합니다. root 레포 경로인 경우 filePath는 빈 문자열, kind는 "root"입니다.
  * 예: https://github.com/user/my-repo/blob/main/src/index.ts
- *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts" }
+ *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts", kind: "blob" }
  */
-function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string } | null {
+function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string; kind: "root" | "blob" | "raw" | "tree" } | null {
   try {
     const urlObj = new URL(url);
     const segments = getDecodedPathSegments(urlObj.pathname);
@@ -277,19 +287,22 @@ function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: 
     
     // 루트 경로인 경우
     if (segments.length === 2) {
-      return { owner, repo, filePath: "" };
+      return { owner, repo, filePath: "", kind: "root" };
     }
 
     if (!["blob", "raw", "tree"].includes(kind)) {
       return null;
     }
 
-    // /tree/{branch} 등 파일/폴더 경로가 비어있는 루트의 특정 브랜치인 경우
-    const filePath = resolveBlobFilePath(owner, repo, tailSegments);
+    // tree 뷰는 segment 기반 fallback을 허용하지 않습니다.
+    // 슬래시 포함 브랜치명(/owner/repo/tree/feature/foo)에서 "foo"가
+    // 파일 경로로 잘못 파싱되는 회귀를 방지합니다.
+    const filePath = resolveBlobFilePath(owner, repo, tailSegments, kind !== "tree");
     return {
       owner,
       repo,
       filePath: filePath || "",
+      kind: kind as "blob" | "raw" | "tree",
     };
   } catch {
     return null;
@@ -615,10 +628,19 @@ function injectIntoRepoView(settings: UserSettings | null): void {
   const repoInfo = parseGitHubRepoUrl(window.location.href);
   if (!repoInfo) return;
 
-  // GitHub의 "Code" 버튼 탐색 ("Add file" 은 건드리지 않음)
-  const codeBtn = Array.from(
-    document.querySelectorAll<HTMLElement>('button, summary')
-  ).find((el) => el.textContent?.trim() === "Code");
+  // GitHub의 "Code" 버튼 탐색 — 언어 중립 속성 기반 우선, 텍스트 기반 fallback
+  // data-testid / data-get-repo-select-menu 는 GitHub 로컬라이제이션과 무관하게 안정적입니다.
+  let codeBtn: HTMLElement | null =
+    document.querySelector<HTMLElement>(
+      '[data-testid="get-repo-button"], [data-get-repo-select-menu]'
+    );
+
+  if (!codeBtn) {
+    codeBtn =
+      Array.from(document.querySelectorAll<HTMLElement>("button, summary")).find(
+        (el) => el.textContent?.trim() === "Code"
+      ) ?? null;
+  }
 
   if (!codeBtn) return;
 
@@ -650,7 +672,9 @@ function injectIntoRepoView(settings: UserSettings | null): void {
  */
 function injectIntoFileTreeRows(settings: UserSettings | null): void {
   const pageInfo = parseGitHubUrl(window.location.href);
-  if (!pageInfo) return;
+  // 트리/루트 뷰에서만 실행 — blob, PR, issues 등 다른 페이지에서는 스킵
+  // blob 페이지의 README나 사이드바 링크가 잘못 매칭되는 것을 방지합니다.
+  if (!pageInfo || (pageInfo.kind !== "root" && pageInfo.kind !== "tree")) return;
 
   // 현재 레포의 파일/폴더 링크를 href 기반으로 탐색 (클래스명 불필요)
   const ownerRepo = `/${pageInfo.owner}/${pageInfo.repo}/`;
@@ -680,8 +704,6 @@ function injectIntoFileTreeRows(settings: UserSettings | null): void {
     }
 
     btn.classList.add(TREE_ROW_INJECTED_MARKER);
-    btn.setAttribute("title", absolutePath ? `${absolutePath} 열기` : "IDE 경로가 설정되지 않았습니다.");
-
     titleLink.insertAdjacentElement("afterend", btn);
   });
 }
