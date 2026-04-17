@@ -615,10 +615,19 @@ function injectIntoRepoView(settings: UserSettings | null): void {
   const repoInfo = parseGitHubRepoUrl(window.location.href);
   if (!repoInfo) return;
 
-  // GitHub의 "Code" 버튼 탐색 ("Add file" 은 건드리지 않음)
-  const codeBtn = Array.from(
-    document.querySelectorAll<HTMLElement>('button, summary')
-  ).find((el) => el.textContent?.trim() === "Code");
+  // GitHub의 "Code" 버튼 탐색 — 언어 중립 속성 기반 우선, 텍스트 기반 fallback
+  // data-testid / data-get-repo-select-menu 는 GitHub 로컬라이제이션과 무관하게 안정적입니다.
+  let codeBtn: HTMLElement | null =
+    document.querySelector<HTMLElement>(
+      '[data-testid="get-repo-button"], [data-get-repo-select-menu]'
+    );
+
+  if (!codeBtn) {
+    codeBtn =
+      Array.from(document.querySelectorAll<HTMLElement>("button, summary")).find(
+        (el) => el.textContent?.trim() === "Code"
+      ) ?? null;
+  }
 
   if (!codeBtn) return;
 
