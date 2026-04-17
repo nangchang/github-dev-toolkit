@@ -272,12 +272,12 @@ function detectFilePath(text: string): string | null {
 }
 
 /**
- * 현재 GitHub URL에서 오너(owner), 레포지토리(repo), 파일 경로(filePath)를 파싱합니다.
- * blob, raw, tree(폴더) 모두 지원합니다. root 레포 경로인 경우 filePath는 부재(빈 문자열)합니다.
+ * 현재 GitHub URL에서 오너(owner), 레포지토리(repo), 파일 경로(filePath), kind를 파싱합니다.
+ * blob, raw, tree(폴더) 모두 지원합니다. root 레포 경로인 경우 filePath는 빈 문자열, kind는 "root"입니다.
  * 예: https://github.com/user/my-repo/blob/main/src/index.ts
- *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts" }
+ *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts", kind: "blob" }
  */
-function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string } | null {
+function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string; kind: "root" | "blob" | "raw" | "tree" } | null {
   try {
     const urlObj = new URL(url);
     const segments = getDecodedPathSegments(urlObj.pathname);
@@ -287,7 +287,7 @@ function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: 
     
     // 루트 경로인 경우
     if (segments.length === 2) {
-      return { owner, repo, filePath: "" };
+      return { owner, repo, filePath: "", kind: "root" };
     }
 
     if (!["blob", "raw", "tree"].includes(kind)) {
@@ -302,6 +302,7 @@ function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: 
       owner,
       repo,
       filePath: filePath || "",
+      kind: kind as "blob" | "raw" | "tree",
     };
   } catch {
     return null;
@@ -670,12 +671,10 @@ function injectIntoRepoView(settings: UserSettings | null): void {
  * GitHub UI 변경에 강인하게 동작합니다.
  */
 function injectIntoFileTreeRows(settings: UserSettings | null): void {
+  const pageInfo = parseGitHubUrl(window.location.href);
   // 트리/루트 뷰에서만 실행 — blob, PR, issues 등 다른 페이지에서는 스킵
   // blob 페이지의 README나 사이드바 링크가 잘못 매칭되는 것을 방지합니다.
-  if (!parseGitHubRepoUrl(window.location.href)) return;
-
-  const pageInfo = parseGitHubUrl(window.location.href);
-  if (!pageInfo) return;
+  if (!pageInfo || (pageInfo.kind !== "root" && pageInfo.kind !== "tree")) return;
 
   // 현재 레포의 파일/폴더 링크를 href 기반으로 탐색 (클래스명 불필요)
   const ownerRepo = `/${pageInfo.owner}/${pageInfo.repo}/`;
