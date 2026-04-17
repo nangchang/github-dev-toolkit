@@ -680,8 +680,6 @@ function injectIntoFileTreeRows(settings: UserSettings | null): void {
     }
 
     btn.classList.add(TREE_ROW_INJECTED_MARKER);
-    btn.setAttribute("title", absolutePath ? `${absolutePath} 열기` : "IDE 경로가 설정되지 않았습니다.");
-
     titleLink.insertAdjacentElement("afterend", btn);
   });
 }
