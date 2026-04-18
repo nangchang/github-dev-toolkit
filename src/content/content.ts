@@ -981,6 +981,63 @@ function renderTranslatedSegments(
   });
 }
 
+function hasNestedCommentBody(element: HTMLElement): boolean {
+  return Boolean(
+    element.querySelector([
+      ".comment-body",
+      ".js-comment-body",
+      ".markdown-body",
+      "[class*='IssueCommentBody']",
+      "[class*='MarkdownBody']",
+      "[class*='markdownBody']",
+      "[class*='RenderedMarkdown']",
+      "[class*='renderedMarkdown']",
+      "[class*='SafeHTMLBox']",
+      "[class*='BodyHTMLContainer']",
+      "[data-testid='comment-body']",
+      "[data-testid*='comment-body' i]",
+      "[data-testid='markdown-body']",
+      "[data-testid*='markdown-body' i]",
+    ].join(", "))
+  );
+}
+
+function isInsideCommentContext(element: HTMLElement): boolean {
+  return Boolean(
+    element.closest([
+      ".comment-body",
+      ".js-comment-body",
+      ".review-comment",
+      ".js-resolvable-thread",
+      ".js-inline-comment",
+      ".js-comment-container",
+      ".timeline-comment",
+      ".js-timeline-item",
+      ".react-issue-comment",
+      "[data-wrapper-timeline-id]",
+      "[id^='issuecomment-']",
+      "[id^='discussion_r']",
+      "[id^='pullrequestreview-']",
+      "[data-testid='comment-header']",
+      "[class*='IssueCommentViewer']",
+      "[class*='PullRequestReviewComment']",
+      "[class*='ReviewComment']",
+      "[class*='ReviewThread']",
+      "[class*='ReviewThreadComment']",
+      "[class*='InlineComment']",
+      "[class*='SafeHTMLBox']",
+      "[class*='BodyHTMLContainer']",
+      "[class*='LayoutHelpers-module__timelineElement']",
+    ].join(", "))
+  );
+}
+
+function hasTranslateControls(element: HTMLElement): boolean {
+  return Array.from(element.children).some((child) =>
+    child instanceof HTMLElement && child.classList.contains(TRANSLATE_CONTROLS_CLASS)
+  );
+}
+
 function createTranslateButtonIcon(): SVGSVGElement {
   const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   icon.classList.add("gdt-translate-icon");
@@ -1155,7 +1212,8 @@ function handleTranslateClick(
 function injectTranslateButtons(): void {
   const excludeSelector = [
     ".file-header", ".js-file-header", "[class*='diff-file-header']",
-    ".diff-table", ".highlight", "nav", "#repository-container-header",
+    "nav", "#repository-container-header",
+    "textarea", "[contenteditable='true']",
   ].join(", ");
 
   // markdown-body를 직접 탐색: 코멘트 컨테이너 안에 있는 것만 대상
@@ -1167,8 +1225,55 @@ function injectTranslateButtons(): void {
       // 구버전: comment-body 하위의 markdown-body
       ".comment-body .markdown-body",
       ".js-comment-body .markdown-body",
+      // Files changed 탭 변형: markdown-body 클래스가 없는 comment body
+      ".comment-body",
+      ".js-comment-body",
+      // GitHub Preview UX / React comments
+      ".react-issue-comment [data-testid='markdown-body'] .markdown-body",
+      ".react-issue-comment [data-testid*='markdown-body' i] .markdown-body",
+      ".react-issue-comment [class*='IssueCommentBody'] .markdown-body",
+      "[data-wrapper-timeline-id] [data-testid='markdown-body'] .markdown-body",
+      "[data-wrapper-timeline-id] [data-testid*='markdown-body' i] .markdown-body",
+      "[data-wrapper-timeline-id] [class*='IssueCommentBody'] .markdown-body",
+      "[class*='LayoutHelpers-module__timelineElement'] [data-testid='markdown-body'] .markdown-body",
+      "[class*='LayoutHelpers-module__timelineElement'] [data-testid*='markdown-body' i] .markdown-body",
+      "[class*='IssueCommentViewer'] [data-testid='markdown-body'] .markdown-body",
+      "[class*='IssueCommentViewer'] [data-testid*='markdown-body' i] .markdown-body",
+      "[class*='IssueCommentViewer'] [class*='IssueCommentBody'] .markdown-body",
+      "[class*='PullRequestReviewComment'] [data-testid='markdown-body'] .markdown-body",
+      "[class*='PullRequestReviewComment'] [data-testid*='markdown-body' i] .markdown-body",
+      "[class*='ReviewComment'] [data-testid='markdown-body'] .markdown-body",
+      "[class*='ReviewComment'] [data-testid*='markdown-body' i] .markdown-body",
+      "[class*='ReviewThread'] [data-testid='markdown-body'] .markdown-body",
+      "[class*='ReviewThread'] [data-testid*='markdown-body' i] .markdown-body",
+      "[class*='ReviewThread'] [class*='SafeHTMLBox'].markdown-body",
+      "[class*='ReviewThread'] [class*='BodyHTMLContainer'] .markdown-body",
+      "[class*='ReviewThreadComment'] .markdown-body",
+      "[class*='ReviewThreadComment'] [class*='SafeHTMLBox']",
+      "[class*='ReviewThreadComment'] [class*='BodyHTMLContainer'] .markdown-body",
+      "[class*='ReviewThreadComment-module__SafeHTMLBox'].markdown-body",
+      "[class*='ReviewThreadComment-module__BodyHTMLContainer'] .markdown-body",
+      "[class*='InlineComment'] [data-testid='markdown-body'] .markdown-body",
+      "[class*='InlineComment'] [data-testid*='markdown-body' i] .markdown-body",
+      "[data-testid='markdown-body'] .markdown-body",
+      "[data-testid*='markdown-body' i] .markdown-body",
+      "[class*='IssueCommentBody'] .markdown-body",
+      "[data-testid='markdown-body']",
+      "[data-testid*='markdown-body' i]",
+      "[class*='IssueCommentBody']",
+      "[class*='RenderedMarkdown']",
+      "[class*='renderedMarkdown']",
+      "[class*='SafeHTMLBox'].markdown-body",
+      "[class*='BodyHTMLContainer'] .markdown-body",
       // PR review thread 코멘트
       ".review-comment .markdown-body",
+      ".review-comment .comment-body",
+      ".js-resolvable-thread .markdown-body",
+      ".js-resolvable-thread .comment-body",
+      ".js-inline-comment .markdown-body",
+      ".js-inline-comment .comment-body",
+      ".js-comment-container .markdown-body",
+      ".js-comment-container .comment-body",
       // timeline 코멘트 (이슈/PR 대화)
       ".timeline-comment .markdown-body",
       // GitHub가 id 기반으로 감싸는 이슈/PR/리뷰 코멘트
@@ -1181,8 +1286,13 @@ function injectTranslateButtons(): void {
   );
 
   candidates.forEach((markdownBody) => {
-    if (markdownBody.dataset[TRANSLATE_INJECTED_ATTR]) return;
+    if (markdownBody.dataset[TRANSLATE_INJECTED_ATTR]) {
+      if (hasTranslateControls(markdownBody)) return;
+      delete markdownBody.dataset[TRANSLATE_INJECTED_ATTR];
+    }
 
+    if (!markdownBody.classList.contains("markdown-body") && hasNestedCommentBody(markdownBody)) return;
+    if (!isInsideCommentContext(markdownBody)) return;
     if (markdownBody.closest(excludeSelector)) return;
     if (!extractTranslatableText(markdownBody)) return;
 
@@ -1741,6 +1851,8 @@ function startObserver(): void {
 function init(): void {
   // 초기 로드 시 삽입 시도
   injectButtons();
+  window.setTimeout(injectButtons, 1000);
+  window.setTimeout(injectButtons, 2500);
 
   window.addEventListener("hashchange", syncLineBadges);
   window.addEventListener("popstate", syncLineBadges);
@@ -1749,7 +1861,16 @@ function init(): void {
   startObserver();
 
   // GitHub의 Turbo 내비게이션 이벤트 대응
-  document.addEventListener("turbo:load", () => {
+  ["turbo:load", "turbo:render", "turbo:frame-load"].forEach((eventName) => {
+    document.addEventListener(eventName, () => {
+      window.setTimeout(() => {
+        syncLineBadges();
+        injectButtons();
+      }, 0);
+    });
+  });
+
+  document.addEventListener("turbo:morph", () => {
     syncLineBadges();
     injectButtons();
   });
