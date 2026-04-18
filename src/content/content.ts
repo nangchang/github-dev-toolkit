@@ -1,4 +1,10 @@
-import { SupportedIDE, UserSettings, IDE_URI_SCHEMES, IDE_DISPLAY_NAMES } from "../types";
+import {
+  SupportedIDE,
+  TranslationTargetLanguage,
+  UserSettings,
+  IDE_URI_SCHEMES,
+  IDE_DISPLAY_NAMES,
+} from "../types";
 
 // ============================================================
 // Chrome Built-in Translator API 타입 선언 (Chrome 138+)
@@ -53,6 +59,12 @@ const TRANSLATE_INJECTED_ATTR = "gdtTranslateInjected";
 
 /** 번역 UI 래퍼 클래스 */
 const TRANSLATE_CONTROLS_CLASS = "gdt-translate-controls";
+
+/** 번역 액션 행 클래스 */
+const TRANSLATE_ACTIONS_CLASS = "gdt-translate-actions";
+
+/** 번역 언어 드롭다운 래퍼 클래스 */
+const TRANSLATE_LANGUAGE_WRAPPER_CLASS = "gdt-translate-language-wrapper";
 
 /** 언어 감지가 실패하거나 명백히 틀린 경우 사용할 기본 소스 언어 */
 const TRANSLATE_DEFAULT_SOURCE_BY_TARGET: Record<string, string> = {
@@ -715,8 +727,18 @@ function getBrowserTargetLanguage(): string {
   return normalizeLanguageCode(navigator.language) ?? "en";
 }
 
-/** 사용자가 popup에서 고른 댓글 번역 대상 언어를 반환합니다. */
-async function getTranslateTargetLanguage(): Promise<string> {
+/** 사용자가 popup이나 댓글 드롭다운에서 고른 댓글 번역 대상 언어를 반환합니다. */
+async function getTranslateTargetLanguage(
+  targetLanguageOverride?: TranslationTargetLanguage
+): Promise<string> {
+  if (targetLanguageOverride && targetLanguageOverride !== "browser") {
+    return normalizeLanguageCode(targetLanguageOverride) ?? getBrowserTargetLanguage();
+  }
+
+  if (targetLanguageOverride === "browser") {
+    return getBrowserTargetLanguage();
+  }
+
   const result = await chrome.storage.sync.get(["targetLanguage"]);
   const storedLanguage = typeof result.targetLanguage === "string"
     ? result.targetLanguage
@@ -753,11 +775,14 @@ function inferCommentLanguage(
  * @throws 'already-target' — 소스 언어가 이미 대상 언어인 경우
  * @throws 'unavailable' — API 미지원 또는 해당 언어 쌍 번역 불가
  */
-async function createTranslatorForText(text: string): Promise<Translator> {
+async function createTranslatorForText(
+  text: string,
+  targetLanguageOverride?: TranslationTargetLanguage
+): Promise<Translator> {
   const api = await getTranslatorApi();
   if (!api) throw new Error("unavailable");
 
-  const targetLanguage = await getTranslateTargetLanguage();
+  const targetLanguage = await getTranslateTargetLanguage(targetLanguageOverride);
   let detectedLanguage: string | undefined;
   try {
     const detectorFactory = self.LanguageDetector ?? self.ai?.languageDetector;
@@ -779,9 +804,12 @@ async function createTranslatorForText(text: string): Promise<Translator> {
 }
 
 /** 댓글 세그먼트를 같은 번역기로 순서대로 번역합니다. */
-async function translateSegments(segments: TranslationSegment[]): Promise<TranslationSegment[]> {
+async function translateSegments(
+  segments: TranslationSegment[],
+  targetLanguageOverride?: TranslationTargetLanguage
+): Promise<TranslationSegment[]> {
   const sourceText = segments.map((segment) => segment.text).join("\n\n");
-  const translator = await createTranslatorForText(sourceText);
+  const translator = await createTranslatorForText(sourceText, targetLanguageOverride);
   const translatedSegments: TranslationSegment[] = [];
 
   for (let i = 0; i < segments.length; i++) {
@@ -953,6 +981,120 @@ function renderTranslatedSegments(
   });
 }
 
+function createTranslateButtonIcon(): SVGSVGElement {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.classList.add("gdt-translate-icon");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute(
+    "d",
+    "M12.87 15.07 10.33 12.56l.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17A15.7 15.7 0 0 1 9 11.35 14.7 14.7 0 0 1 6.69 8h-2a16.9 16.9 0 0 0 2.98 4.56L2.58 17.58 4 19l5-5 3.11 3.11.76-2.04ZM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12Zm-2.62 7 1.62-4.33L19.12 17h-3.24Z"
+  );
+  icon.appendChild(path);
+
+  return icon;
+}
+
+function setTranslateButtonLabel(btn: HTMLButtonElement, messageKey: string): void {
+  btn.textContent = "";
+  btn.appendChild(createTranslateButtonIcon());
+  btn.appendChild(document.createTextNode(chrome.i18n.getMessage(messageKey)));
+}
+
+function parseTranslationTargetLanguage(value: string): TranslationTargetLanguage {
+  if (value === "ko" || value === "en") {
+    return value;
+  }
+
+  return "browser";
+}
+
+function createTranslationLanguageOption(
+  value: TranslationTargetLanguage,
+  messageKey: string
+): HTMLOptionElement {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = chrome.i18n.getMessage(messageKey);
+  return option;
+}
+
+async function initializeTranslationLanguageSelect(select: HTMLSelectElement): Promise<void> {
+  const result = await chrome.storage.sync.get(["targetLanguage"]);
+  const storedLanguage = typeof result.targetLanguage === "string"
+    ? parseTranslationTargetLanguage(result.targetLanguage)
+    : "browser";
+
+  if (select.dataset.gdtLanguageUserSelected === "true") return;
+  select.value = storedLanguage;
+}
+
+function createTranslationLanguageSelect(): HTMLSelectElement {
+  const select = document.createElement("select");
+  select.className = "gdt-translate-language-select";
+  select.setAttribute("aria-label", chrome.i18n.getMessage("labelTranslationTarget"));
+  select.title = chrome.i18n.getMessage("labelTranslationTarget");
+
+  select.appendChild(createTranslationLanguageOption("browser", "optionBrowserLanguage"));
+  select.appendChild(createTranslationLanguageOption("ko", "optionKorean"));
+  select.appendChild(createTranslationLanguageOption("en", "optionEnglish"));
+
+  select.addEventListener("change", () => {
+    select.dataset.gdtLanguageUserSelected = "true";
+  });
+
+  initializeTranslationLanguageSelect(select).catch(() => {
+    if (select.dataset.gdtLanguageUserSelected !== "true") {
+      select.value = "browser";
+    }
+  });
+
+  return select;
+}
+
+function createTranslationLanguagePicker(): {
+  wrapper: HTMLSpanElement;
+  select: HTMLSelectElement;
+} {
+  const wrapper = document.createElement("span");
+  wrapper.className = TRANSLATE_LANGUAGE_WRAPPER_CLASS;
+
+  const select = createTranslationLanguageSelect();
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.classList.add("gdt-translate-caret");
+  icon.setAttribute("viewBox", "0 0 16 16");
+  icon.setAttribute("aria-hidden", "true");
+
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M4 6L8 10L12 6");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.5");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  icon.appendChild(path);
+
+  wrapper.appendChild(select);
+  wrapper.appendChild(icon);
+
+  return { wrapper, select };
+}
+
+function resetTranslationResult(
+  btn: HTMLButtonElement,
+  resultContainer: HTMLElement
+): void {
+  delete resultContainer.dataset.gdtTranslated;
+  resultContainer.textContent = "";
+  resultContainer.hidden = true;
+  btn.disabled = false;
+  btn.hidden = false;
+  setTranslateButtonLabel(btn, "btnTranslate");
+  btn.title = "";
+}
+
 /**
  * 번역 버튼 클릭을 처리합니다.
  * - 첫 클릭: 번역 실행 후 원문 아래에 번역 결과 표시
@@ -961,39 +1103,42 @@ function renderTranslatedSegments(
 function handleTranslateClick(
   btn: HTMLButtonElement,
   markdownBody: HTMLElement,
-  resultContainer: HTMLElement
+  resultContainer: HTMLElement,
+  languageSelect: HTMLSelectElement
 ): void {
   if (resultContainer.dataset.gdtTranslated === "true") {
     const showing = !resultContainer.hidden;
     resultContainer.hidden = showing;
-    btn.textContent = chrome.i18n.getMessage(showing ? "btnTranslate" : "btnHideTranslation");
+    setTranslateButtonLabel(btn, showing ? "btnTranslate" : "btnHideTranslation");
     return;
   }
 
-  btn.textContent = chrome.i18n.getMessage("btnTranslating");
+  setTranslateButtonLabel(btn, "btnTranslating");
   btn.disabled = true;
+  btn.title = "";
 
   const segments = extractTranslationSegments(markdownBody);
   if (segments.length === 0) {
     btn.disabled = false;
-    btn.textContent = chrome.i18n.getMessage("btnTranslate");
+    setTranslateButtonLabel(btn, "btnTranslate");
     return;
   }
 
-  translateSegments(segments).then((translatedSegments) => {
+  const targetLanguage = parseTranslationTargetLanguage(languageSelect.value);
+  translateSegments(segments, targetLanguage).then((translatedSegments) => {
     renderTranslatedSegments(resultContainer, translatedSegments);
     resultContainer.dataset.gdtTranslated = "true";
     resultContainer.hidden = false;
-    btn.textContent = chrome.i18n.getMessage("btnHideTranslation");
+    setTranslateButtonLabel(btn, "btnHideTranslation");
     btn.disabled = false;
   }).catch((err: unknown) => {
     btn.disabled = false;
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "already-target") {
-      btn.textContent = chrome.i18n.getMessage("btnTranslate");
+      setTranslateButtonLabel(btn, "btnTranslate");
       btn.title = chrome.i18n.getMessage("tooltipAlreadyTargetLanguage");
     } else {
-      btn.textContent = chrome.i18n.getMessage("btnTranslate");
+      setTranslateButtonLabel(btn, "btnTranslate");
       btn.title = chrome.i18n.getMessage("tooltipTranslateFailed");
     }
   });
@@ -1046,20 +1191,32 @@ function injectTranslateButtons(): void {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "gdt-translate-btn";
-    btn.textContent = chrome.i18n.getMessage("btnTranslate");
+    setTranslateButtonLabel(btn, "btnTranslate");
+
+    const languagePicker = createTranslationLanguagePicker();
+    const languageSelect = languagePicker.select;
 
     const controls = document.createElement("div");
     controls.className = TRANSLATE_CONTROLS_CLASS;
+
+    const actions = document.createElement("div");
+    actions.className = TRANSLATE_ACTIONS_CLASS;
 
     const resultContainer = document.createElement("div");
     resultContainer.className = "gdt-translate-result";
     resultContainer.hidden = true;
 
     btn.addEventListener("click", () =>
-      handleTranslateClick(btn, markdownBody, resultContainer)
+      handleTranslateClick(btn, markdownBody, resultContainer, languageSelect)
     );
 
-    controls.appendChild(btn);
+    languageSelect.addEventListener("change", () => {
+      resetTranslationResult(btn, resultContainer);
+    });
+
+    actions.appendChild(btn);
+    actions.appendChild(languagePicker.wrapper);
+    controls.appendChild(actions);
     controls.appendChild(resultContainer);
     markdownBody.appendChild(controls);
   });
