@@ -435,7 +435,8 @@ function findReviewLineNumber(link: HTMLElement, maxAncestorDepth: number = 12):
       // 전략 2: data-line-number 속성
       const lineElements = sibling.querySelectorAll<HTMLElement>("[data-line-number]");
       let firstContextLine = 0;
-      for (const lineEl of lineElements) {
+      for (let j = 0; j < lineElements.length; j++) {
+        const lineEl = lineElements[j];
         const n = parseInt(lineEl.dataset.lineNumber ?? "", 10);
         if (isNaN(n) || n <= 0) continue;
 
