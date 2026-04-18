@@ -1,8 +1,9 @@
-import { SupportedIDE, UserSettings, IDE_URI_SCHEMES } from "../types";
+import { SupportedIDE, TranslationTargetLanguage, UserSettings, IDE_URI_SCHEMES } from "../types";
 
 // --- DOM 요소 참조 ---
 // popup.html 하단에서 스크립트를 로드하므로 여기서는 요소가 이미 존재한다고 가정합니다.
 const ideSelect = document.getElementById("ide-select") as HTMLSelectElement;
+const targetLanguageSelect = document.getElementById("target-language-select") as HTMLSelectElement;
 const basePathInput = document.getElementById("base-path-input") as HTMLInputElement;
 const saveBtn = document.getElementById("save-btn") as HTMLButtonElement;
 const saveBtnText = document.getElementById("save-btn-text") as HTMLSpanElement;
@@ -43,9 +44,12 @@ function applyI18n(): void {
  * sync storage를 사용해 같은 Chrome 프로필의 여러 브라우저에서 설정을 공유합니다.
  */
 async function loadSettings(): Promise<void> {
-  const result = await chrome.storage.sync.get(["ide", "basePath"]);
+  const result = await chrome.storage.sync.get(["ide", "basePath", "targetLanguage"]);
   if (result.ide) {
     ideSelect.value = result.ide as SupportedIDE;
+  }
+  if (result.targetLanguage) {
+    targetLanguageSelect.value = result.targetLanguage as TranslationTargetLanguage;
   }
   if (result.basePath) {
     basePathInput.value = result.basePath as string;
@@ -74,6 +78,7 @@ async function saveSettings(): Promise<void> {
 
   const settings: UserSettings = {
     ide: ideSelect.value as SupportedIDE,
+    targetLanguage: targetLanguageSelect.value as TranslationTargetLanguage,
     // content script에서 repo/filePath를 이어 붙일 때 중복 slash가 생기지 않게 정규화합니다.
     basePath: basePath.replace(/\/$/, ""),
   };

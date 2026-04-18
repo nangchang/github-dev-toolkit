@@ -1,6 +1,41 @@
 import { SupportedIDE, UserSettings, IDE_URI_SCHEMES, IDE_DISPLAY_NAMES } from "../types";
 
 // ============================================================
+// Chrome Built-in Translator API 타입 선언 (Chrome 138+)
+// ============================================================
+
+interface LanguageDetectionResult {
+  detectedLanguage: string;
+  confidence: number;
+}
+interface LanguageDetector {
+  detect(text: string): Promise<LanguageDetectionResult[]>;
+}
+interface Translator {
+  translate(input: string): Promise<string>;
+}
+interface TranslatorFactory {
+  availability(options: { sourceLanguage: string; targetLanguage: string }): Promise<"available" | "downloadable" | "downloading" | "unavailable" | "readily" | "after-download" | "no">;
+  create(options: {
+    sourceLanguage: string;
+    targetLanguage: string;
+    monitor?: (monitor: EventTarget) => void;
+  }): Promise<Translator>;
+}
+interface LanguageDetectorFactory {
+  create(): Promise<LanguageDetector>;
+}
+interface AiAPIs {
+  translator?: TranslatorFactory;
+  languageDetector?: LanguageDetectorFactory;
+}
+declare const self: typeof globalThis & {
+  ai?: AiAPIs;
+  Translator?: TranslatorFactory;
+  LanguageDetector?: LanguageDetectorFactory;
+};
+
+// ============================================================
 // 상수 및 타입
 // ============================================================
 
@@ -12,6 +47,18 @@ const REPO_INJECTED_MARKER = "gdt-repo-btn";
 
 /** 파일 트리 행(row) 버튼이 이미 삽입됐음을 표시하는 CSS 클래스 */
 const TREE_ROW_INJECTED_MARKER = "gdt-tree-row-btn";
+
+/** 번역 버튼이 이미 삽입됐음을 표시하는 dataset 키 (camelCase) */
+const TRANSLATE_INJECTED_ATTR = "gdtTranslateInjected";
+
+/** 번역 UI 래퍼 클래스 */
+const TRANSLATE_CONTROLS_CLASS = "gdt-translate-controls";
+
+/** 언어 감지가 실패하거나 명백히 틀린 경우 사용할 기본 소스 언어 */
+const TRANSLATE_DEFAULT_SOURCE_BY_TARGET: Record<string, string> = {
+  en: "ko",
+  ko: "en",
+};
 
 /** 선택된 라인 번호를 URL에서 파싱하는 정규식 (예: #L42 또는 #L10-L20) */
 const LINE_NUMBER_REGEX = /#L(\d+)(?:-L(\d+))?$/;
@@ -581,6 +628,444 @@ function createUnconfiguredButton(compact: boolean = false): HTMLAnchorElement {
 }
 
 // ============================================================
+// 번역 기능 (Chrome Translator API)
+// ============================================================
+
+/** 번역기 API 인스턴스 캐시 (undefined=미확인, null=미지원) */
+let translatorApiCache: TranslatorFactory | null | undefined = undefined;
+
+type TranslationSegmentKind = "heading" | "paragraph" | "list-item" | "quote";
+
+interface TranslationSegment {
+  kind: TranslationSegmentKind;
+  text: string;
+}
+
+const TRANSLATION_BLOCK_TAGS = new Set([
+  "ADDRESS",
+  "ARTICLE",
+  "ASIDE",
+  "BLOCKQUOTE",
+  "DD",
+  "DETAILS",
+  "DIV",
+  "DL",
+  "DT",
+  "FIGCAPTION",
+  "FIGURE",
+  "FOOTER",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "HEADER",
+  "HR",
+  "LI",
+  "MAIN",
+  "NAV",
+  "OL",
+  "P",
+  "PRE",
+  "SECTION",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+  "UL",
+]);
+
+/**
+ * Chrome Translator API 인스턴스를 반환합니다.
+ * 미지원 환경이면 null을 반환하며, 결과는 세션 동안 캐시됩니다.
+ */
+async function getTranslatorApi(): Promise<TranslatorFactory | null> {
+  if (translatorApiCache !== undefined) return translatorApiCache;
+
+  const api = self.Translator ?? self.ai?.translator ?? null;
+  if (!api) {
+    translatorApiCache = null;
+    return null;
+  }
+
+  try {
+    // 일반적인 언어 쌍으로 API 지원 여부만 테스트 (en→es: 대부분 지원)
+    const avail = await api.availability({ sourceLanguage: "en", targetLanguage: "es" });
+    translatorApiCache = avail !== "no" && avail !== "unavailable" ? api : null;
+  } catch {
+    translatorApiCache = null;
+  }
+  return translatorApiCache;
+}
+
+/** Translator API가 기대하는 짧은 BCP-47 언어 코드로 정규화합니다. */
+function normalizeLanguageCode(language: string | undefined): string | null {
+  if (!language) return null;
+
+  const normalized = language.toLowerCase().split("-")[0];
+  return normalized || null;
+}
+
+/** 브라우저 UI 언어에서 BCP-47 기본 태그를 추출합니다. 예: "ko-KR" -> "ko" */
+function getBrowserTargetLanguage(): string {
+  return normalizeLanguageCode(navigator.language) ?? "en";
+}
+
+/** 사용자가 popup에서 고른 댓글 번역 대상 언어를 반환합니다. */
+async function getTranslateTargetLanguage(): Promise<string> {
+  const result = await chrome.storage.sync.get(["targetLanguage"]);
+  const storedLanguage = typeof result.targetLanguage === "string"
+    ? result.targetLanguage
+    : "browser";
+
+  if (storedLanguage === "browser") {
+    return getBrowserTargetLanguage();
+  }
+
+  return normalizeLanguageCode(storedLanguage) ?? getBrowserTargetLanguage();
+}
+
+/**
+ * 짧은 댓글에서 Chrome LanguageDetector가 오판하는 경우를 줄이기 위한 가벼운 보정입니다.
+ * GitHub 댓글 번역의 핵심 경로인 ko/en은 문자 종류만으로도 꽤 안정적으로 구분할 수 있습니다.
+ */
+function inferCommentLanguage(
+  text: string,
+  detectedLanguage: string | undefined,
+  targetLanguage: string
+): string {
+  const detected = normalizeLanguageCode(detectedLanguage);
+  const hangulCount = (text.match(/[\uac00-\ud7af]/g) ?? []).length;
+  const latinCount = (text.match(/[A-Za-z]/g) ?? []).length;
+
+  if (hangulCount >= 2) return "ko";
+  if (latinCount >= 3 && hangulCount === 0) return "en";
+
+  return detected ?? TRANSLATE_DEFAULT_SOURCE_BY_TARGET[targetLanguage] ?? "en";
+}
+
+/**
+ * 텍스트를 감지된 소스 언어에서 사용자 설정 대상 언어로 번역할 Translator를 만듭니다.
+ * @throws 'already-target' — 소스 언어가 이미 대상 언어인 경우
+ * @throws 'unavailable' — API 미지원 또는 해당 언어 쌍 번역 불가
+ */
+async function createTranslatorForText(text: string): Promise<Translator> {
+  const api = await getTranslatorApi();
+  if (!api) throw new Error("unavailable");
+
+  const targetLanguage = await getTranslateTargetLanguage();
+  let detectedLanguage: string | undefined;
+  try {
+    const detectorFactory = self.LanguageDetector ?? self.ai?.languageDetector;
+    const detector = await detectorFactory?.create();
+    if (detector) {
+      const [result] = await detector.detect(text.slice(0, 500));
+      detectedLanguage = result?.detectedLanguage;
+    }
+  } catch { /* 감지 실패 시 'en' fallback */ }
+
+  const sourceLanguage = inferCommentLanguage(text, detectedLanguage, targetLanguage);
+  if (sourceLanguage === targetLanguage) throw new Error("already-target");
+
+  const avail = await api.availability({ sourceLanguage, targetLanguage });
+  if (avail === "no" || avail === "unavailable") throw new Error("unavailable");
+
+  const translator = await api.create({ sourceLanguage, targetLanguage });
+  return translator;
+}
+
+/** 댓글 세그먼트를 같은 번역기로 순서대로 번역합니다. */
+async function translateSegments(segments: TranslationSegment[]): Promise<TranslationSegment[]> {
+  const sourceText = segments.map((segment) => segment.text).join("\n\n");
+  const translator = await createTranslatorForText(sourceText);
+  const translatedSegments: TranslationSegment[] = [];
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const translatedText = await translator.translate(segment.text);
+    translatedSegments.push({
+      ...segment,
+      text: translatedText.trim(),
+    });
+  }
+
+  return translatedSegments;
+}
+
+/**
+ * 댓글 본문에서 번역 UI와 코드 블록을 제외한 사람이 읽는 텍스트만 추출합니다.
+ * 문장 안의 inline code는 리뷰 문맥에 중요하므로 백틱으로 보존합니다.
+ */
+function shouldSkipTranslationNode(element: HTMLElement): boolean {
+  return (
+    element.classList.contains(TRANSLATE_CONTROLS_CLASS) ||
+    element.classList.contains("gdt-translate-result") ||
+    ["SCRIPT", "STYLE", "SVG", "PRE"].includes(element.tagName)
+  );
+}
+
+function normalizeTranslationText(text: string): string {
+  return text
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function serializeInlineText(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent ?? "";
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return Array.from(node.childNodes).map(serializeInlineText).join("");
+  }
+
+  if (shouldSkipTranslationNode(node)) {
+    return "";
+  }
+
+  if (node.tagName === "BR") {
+    return "\n";
+  }
+
+  if (["CODE", "KBD", "SAMP"].includes(node.tagName)) {
+    const inlineText = normalizeTranslationText(node.textContent ?? "");
+    return inlineText ? ` \`${inlineText}\` ` : "";
+  }
+
+  return Array.from(node.childNodes).map(serializeInlineText).join("");
+}
+
+function isTitleLikeParagraph(element: HTMLElement, text: string, isFirstSegment: boolean): boolean {
+  if (!isFirstSegment || element.tagName !== "P" || text.length > 180) {
+    return false;
+  }
+
+  const firstElementChild = Array.from(element.children).find(
+    (child) => child instanceof HTMLElement && !shouldSkipTranslationNode(child)
+  );
+
+  return (
+    /^P[0-3]\s+/i.test(text) ||
+    firstElementChild?.tagName === "STRONG" ||
+    firstElementChild?.tagName === "B"
+  );
+}
+
+function getSegmentKind(element: HTMLElement, text: string, isFirstSegment: boolean): TranslationSegmentKind {
+  if (/^H[1-6]$/.test(element.tagName) || isTitleLikeParagraph(element, text, isFirstSegment)) {
+    return "heading";
+  }
+
+  if (element.tagName === "LI") {
+    return "list-item";
+  }
+
+  if (element.tagName === "BLOCKQUOTE") {
+    return "quote";
+  }
+
+  return "paragraph";
+}
+
+function appendTranslationSegment(
+  segments: TranslationSegment[],
+  element: HTMLElement,
+  kind?: TranslationSegmentKind
+): void {
+  const text = normalizeTranslationText(serializeInlineText(element));
+  if (!text) return;
+
+  segments.push({
+    kind: kind ?? getSegmentKind(element, text, segments.length === 0),
+    text,
+  });
+}
+
+function collectTranslationSegments(node: Node, segments: TranslationSegment[]): void {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = normalizeTranslationText(node.textContent ?? "");
+    if (text) {
+      segments.push({ kind: "paragraph", text });
+    }
+    return;
+  }
+
+  if (!(node instanceof HTMLElement) || shouldSkipTranslationNode(node)) {
+    return;
+  }
+
+  if (/^H[1-6]$/.test(node.tagName) || ["P", "BLOCKQUOTE", "LI"].includes(node.tagName)) {
+    appendTranslationSegment(segments, node);
+    return;
+  }
+
+  if (node.tagName === "UL" || node.tagName === "OL") {
+    Array.from(node.children).forEach((child) => {
+      if (child instanceof HTMLElement && child.tagName === "LI") {
+        appendTranslationSegment(segments, child, "list-item");
+      }
+    });
+    return;
+  }
+
+  const hasBlockChildren = Array.from(node.children).some((child) =>
+    child instanceof HTMLElement && TRANSLATION_BLOCK_TAGS.has(child.tagName)
+  );
+
+  if (!hasBlockChildren) {
+    appendTranslationSegment(segments, node);
+    return;
+  }
+
+  Array.from(node.childNodes).forEach((child) => collectTranslationSegments(child, segments));
+}
+
+function extractTranslationSegments(markdownBody: HTMLElement): TranslationSegment[] {
+  const segments: TranslationSegment[] = [];
+  Array.from(markdownBody.childNodes).forEach((child) => collectTranslationSegments(child, segments));
+  return segments;
+}
+
+function extractTranslatableText(markdownBody: HTMLElement): string {
+  return extractTranslationSegments(markdownBody)
+    .map((segment) => segment.text)
+    .join("\n\n");
+}
+
+function renderTranslatedSegments(
+  resultContainer: HTMLElement,
+  segments: TranslationSegment[]
+): void {
+  resultContainer.textContent = "";
+
+  segments.forEach((segment) => {
+    const segmentElement = document.createElement("div");
+    segmentElement.className = `gdt-translate-segment gdt-translate-segment--${segment.kind}`;
+    segmentElement.textContent = segment.text;
+    resultContainer.appendChild(segmentElement);
+  });
+}
+
+/**
+ * 번역 버튼 클릭을 처리합니다.
+ * - 첫 클릭: 번역 실행 후 원문 아래에 번역 결과 표시
+ * - 이후 클릭: 번역 결과 접기/펼치기
+ */
+function handleTranslateClick(
+  btn: HTMLButtonElement,
+  markdownBody: HTMLElement,
+  resultContainer: HTMLElement
+): void {
+  if (resultContainer.dataset.gdtTranslated === "true") {
+    const showing = !resultContainer.hidden;
+    resultContainer.hidden = showing;
+    btn.textContent = chrome.i18n.getMessage(showing ? "btnTranslate" : "btnHideTranslation");
+    return;
+  }
+
+  btn.textContent = chrome.i18n.getMessage("btnTranslating");
+  btn.disabled = true;
+
+  const segments = extractTranslationSegments(markdownBody);
+  if (segments.length === 0) {
+    btn.disabled = false;
+    btn.textContent = chrome.i18n.getMessage("btnTranslate");
+    return;
+  }
+
+  translateSegments(segments).then((translatedSegments) => {
+    renderTranslatedSegments(resultContainer, translatedSegments);
+    resultContainer.dataset.gdtTranslated = "true";
+    resultContainer.hidden = false;
+    btn.textContent = chrome.i18n.getMessage("btnHideTranslation");
+    btn.disabled = false;
+  }).catch((err: unknown) => {
+    btn.disabled = false;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "already-target") {
+      btn.textContent = chrome.i18n.getMessage("btnTranslate");
+      btn.title = chrome.i18n.getMessage("tooltipAlreadyTargetLanguage");
+    } else {
+      btn.textContent = chrome.i18n.getMessage("btnTranslate");
+      btn.title = chrome.i18n.getMessage("tooltipTranslateFailed");
+    }
+  });
+}
+
+/**
+ * 페이지 내 GitHub 코멘트 본문마다 번역 버튼을 삽입합니다.
+ * API 가용성은 버튼 클릭 시점에 확인합니다.
+ *
+ * GitHub 코멘트 구조 변형:
+ *   - 구버전: <div class="comment-body"><div class="markdown-body">...</div></div>
+ *   - 신버전: <div class="comment-body markdown-body js-comment-body">...</div>  (동일 element)
+ */
+function injectTranslateButtons(): void {
+  const excludeSelector = [
+    ".file-header", ".js-file-header", "[class*='diff-file-header']",
+    ".diff-table", ".highlight", "nav", "#repository-container-header",
+  ].join(", ");
+
+  // markdown-body를 직접 탐색: 코멘트 컨테이너 안에 있는 것만 대상
+  const candidates = document.querySelectorAll<HTMLElement>(
+    [
+      // 신버전: comment-body 자체가 markdown-body인 경우
+      ".comment-body.markdown-body",
+      ".js-comment-body.markdown-body",
+      // 구버전: comment-body 하위의 markdown-body
+      ".comment-body .markdown-body",
+      ".js-comment-body .markdown-body",
+      // PR review thread 코멘트
+      ".review-comment .markdown-body",
+      // timeline 코멘트 (이슈/PR 대화)
+      ".timeline-comment .markdown-body",
+      // GitHub가 id 기반으로 감싸는 이슈/PR/리뷰 코멘트
+      "[id^='issuecomment-'] .markdown-body",
+      "[id^='discussion_r'] .markdown-body",
+      "[id^='pullrequestreview-'] .markdown-body",
+      // 테스트 id 기반 신형 DOM
+      "[data-testid='comment-body']",
+    ].join(", ")
+  );
+
+  candidates.forEach((markdownBody) => {
+    if (markdownBody.dataset[TRANSLATE_INJECTED_ATTR]) return;
+
+    if (markdownBody.closest(excludeSelector)) return;
+    if (!extractTranslatableText(markdownBody)) return;
+
+    markdownBody.dataset[TRANSLATE_INJECTED_ATTR] = "true";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "gdt-translate-btn";
+    btn.textContent = chrome.i18n.getMessage("btnTranslate");
+
+    const controls = document.createElement("div");
+    controls.className = TRANSLATE_CONTROLS_CLASS;
+
+    const resultContainer = document.createElement("div");
+    resultContainer.className = "gdt-translate-result";
+    resultContainer.hidden = true;
+
+    btn.addEventListener("click", () =>
+      handleTranslateClick(btn, markdownBody, resultContainer)
+    );
+
+    controls.appendChild(btn);
+    controls.appendChild(resultContainer);
+    markdownBody.appendChild(controls);
+  });
+}
+
+// ============================================================
 // 버튼 삽입 로직
 // ============================================================
 
@@ -609,6 +1094,8 @@ async function injectButtons(): Promise<void> {
   // 5. PR 인라인 리뷰 코멘트 스레드 헤더의 파일 경로 옆에 버튼 삽입
   injectIntoPrReviewThreadHeaders(settings);
 
+  // 6. 코멘트 본문 번역 버튼 삽입 (Chrome Translator API, 미지원 시 무시)
+  injectTranslateButtons();
 }
 
 /**
