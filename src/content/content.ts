@@ -910,9 +910,7 @@ function inferCommentLanguage(
   const hangulCount = (text.match(/[\uac00-\ud7af]/g) ?? []).length;
 
   if (hangulCount >= 2) return "ko";
-  if (detected) return detected;
-
-  return TRANSLATE_DEFAULT_SOURCE_LANGUAGE;
+  return detected ?? TRANSLATE_DEFAULT_SOURCE_LANGUAGE;
 }
 
 /**
