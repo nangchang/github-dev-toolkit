@@ -1,5 +1,12 @@
 import { IDE_URI_SCHEMES, SupportedIDE } from "../types";
 
+export type ParsedGitHubUrlBase = {
+  owner: string;
+  repo: string;
+  kind: "root" | "blob" | "raw" | "tree";
+  tailSegments: string[];
+};
+
 /** URL 경로 세그먼트를 디코딩합니다. 잘못된 퍼센트 인코딩은 원문을 유지합니다. */
 export function decodePathSegment(segment: string): string {
   try {
@@ -83,6 +90,37 @@ export function parseGitHubPrUrl(url: string): { owner: string; repo: string } |
     const match = urlObj.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/\d+/);
     if (!match) return null;
     return { owner: match[1], repo: match[2] };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GitHub URL의 공통 구조(owner/repo/kind/tail)를 파싱합니다.
+ * 파일 경로 분해나 DOM 기반 보정은 호출부에서 처리합니다.
+ */
+export function parseGitHubUrlBase(url: string): ParsedGitHubUrlBase | null {
+  try {
+    const urlObj = new URL(url);
+    const segments = getDecodedPathSegments(urlObj.pathname);
+    const [owner, repo, kind, ...tailSegments] = segments;
+
+    if (!owner || !repo) return null;
+
+    if (segments.length === 2) {
+      return { owner, repo, kind: "root", tailSegments: [] };
+    }
+
+    if (!kind || !["blob", "raw", "tree"].includes(kind)) {
+      return null;
+    }
+
+    return {
+      owner,
+      repo,
+      kind: kind as "blob" | "raw" | "tree",
+      tailSegments,
+    };
   } catch {
     return null;
   }

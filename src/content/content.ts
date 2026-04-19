@@ -17,6 +17,7 @@ import {
   normalizeLanguageCode as normalizeLanguageCodeFromUtils,
   parseGitHubPrUrl as parseGitHubPrUrlFromUtils,
   parseGitHubRepoUrl as parseGitHubRepoUrlFromUtils,
+  parseGitHubUrlBase as parseGitHubUrlBaseFromUtils,
   parseLineFromDiffAnchor as parseLineFromDiffAnchorFromUtils,
   parseLineNumber as parseLineNumberFromUtils,
   splitFilePath as splitFilePathFromUtils,
@@ -451,31 +452,28 @@ function detectFilePath(text: string): string | null {
  *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts", kind: "blob" }
  */
 function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string; kind: "root" | "blob" | "raw" | "tree" } | null {
+  const parsed = parseGitHubUrlBaseFromUtils(url);
+  if (!parsed) return null;
+
+  if (parsed.kind === "root") {
+    return { owner: parsed.owner, repo: parsed.repo, filePath: "", kind: "root" };
+  }
+
   try {
-    const urlObj = new URL(url);
-    const segments = getDecodedPathSegments(urlObj.pathname);
-    const [owner, repo, kind, ...tailSegments] = segments;
-    
-    if (!owner || !repo) return null;
-    
-    // 루트 경로인 경우
-    if (segments.length === 2) {
-      return { owner, repo, filePath: "", kind: "root" };
-    }
-
-    if (!["blob", "raw", "tree"].includes(kind)) {
-      return null;
-    }
-
     // tree 뷰는 segment 기반 fallback을 허용하지 않습니다.
     // 슬래시 포함 브랜치명(/owner/repo/tree/feature/foo)에서 "foo"가
     // 파일 경로로 잘못 파싱되는 회귀를 방지합니다.
-    const filePath = resolveBlobFilePath(owner, repo, tailSegments, kind !== "tree");
+    const filePath = resolveBlobFilePath(
+      parsed.owner,
+      parsed.repo,
+      parsed.tailSegments,
+      parsed.kind !== "tree"
+    );
     return {
-      owner,
-      repo,
+      owner: parsed.owner,
+      repo: parsed.repo,
       filePath: filePath || "",
-      kind: kind as "blob" | "raw" | "tree",
+      kind: parsed.kind,
     };
   } catch {
     return null;

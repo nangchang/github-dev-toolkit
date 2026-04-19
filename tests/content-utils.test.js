@@ -13,6 +13,7 @@ const {
   normalizeLanguageCode,
   parseGitHubPrUrl,
   parseGitHubRepoUrl,
+  parseGitHubUrlBase,
   parseLineFromDiffAnchor,
   parseLineNumber,
   splitFilePath,
@@ -73,6 +74,33 @@ test("parseGitHubPrUrl: PR URL에서 owner/repo 추출", () => {
     { owner: "openai", repo: "codex" }
   );
   assert.equal(parseGitHubPrUrl("https://github.com/openai/codex/issues/1"), null);
+});
+
+test("parseGitHubUrlBase: GitHub URL 기본 구조 파싱", () => {
+  assert.deepEqual(
+    parseGitHubUrlBase("https://github.com/openai/codex"),
+    { owner: "openai", repo: "codex", kind: "root", tailSegments: [] }
+  );
+  assert.deepEqual(
+    parseGitHubUrlBase("https://github.com/openai/codex/blob/main/src/app.ts"),
+    {
+      owner: "openai",
+      repo: "codex",
+      kind: "blob",
+      tailSegments: ["main", "src", "app.ts"],
+    }
+  );
+  assert.deepEqual(
+    parseGitHubUrlBase("https://github.com/openai/codex/tree/feature%2Fbranch/src"),
+    {
+      owner: "openai",
+      repo: "codex",
+      kind: "tree",
+      tailSegments: ["feature/branch", "src"],
+    }
+  );
+  assert.equal(parseGitHubUrlBase("https://github.com/openai/codex/issues/1"), null);
+  assert.equal(parseGitHubUrlBase("not-a-url"), null);
 });
 
 test("parseLineNumber: #L 형식 파싱", () => {
