@@ -24,7 +24,7 @@ npm run pack         # 빌드 후 배포용 .zip 생성
 **`src/background/background.ts`** — 서비스 워커. 설치/업데이트 이벤트 처리, content script의 팝업 열기 요청 라우팅.  
 **`src/background/background-utils.ts`** — 백그라운드 유틸: 설치 로그 메시지, 팝업 열기 요청 판별.
 
-**`src/content/content.ts`** (~2015줄) — 핵심 로직. GitHub 페이지에 주입되어 페이지 종류를 감지하고 버튼을 삽입. `MutationObserver`와 300ms 디바운스로 GitHub SPA 내비게이션에 대응.  
+**`src/content/content.ts`** (~1880줄) — 핵심 로직. GitHub 페이지에 주입되어 페이지 종류를 감지하고 버튼을 삽입. `MutationObserver`와 300ms 디바운스로 GitHub SPA 내비게이션에 대응.  
 **`src/content/content-utils.ts`** — URL 파싱, 경로 정규화, 언어 감지 등 순수 유틸 함수 (단위 테스트 커버됨).
 
 **`src/popup/popup.ts` + `popup.html`** — 설정 UI. 사용자가 로컬 basePath와 IDE를 선택하며 `chrome.storage.sync`에 저장.  

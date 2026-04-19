@@ -17,8 +17,8 @@ import {
   normalizeLanguageCode,
   parseGitHubPrUrl,
   parseGitHubRepoUrl,
-  parseGitHubUrlBase as parseGitHubUrlBaseFromUtils,
-  parseLineFromDiffAnchor as parseLineFromDiffAnchorFromUtils,
+  parseGitHubUrlBase,
+  parseLineFromDiffAnchor,
   parseLineNumber,
   splitFilePath,
 } from "./content-utils";
@@ -432,7 +432,7 @@ function resolveBlobFilePath(
  *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts", kind: "blob" }
  */
 function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string; kind: "root" | "blob" | "raw" | "tree" } | null {
-  const parsed = parseGitHubUrlBaseFromUtils(url);
+  const parsed = parseGitHubUrlBase(url);
   if (!parsed) return null;
 
   if (parsed.kind === "root") {
@@ -467,23 +467,20 @@ function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: 
 
 function resolveButton(
   settings: UserSettings | null,
-  absolutePath: string,
+  repo: string,
+  filePath: string | undefined,
   lineNumber: number | null,
   compact: boolean
 ): HTMLAnchorElement {
   if (settings?.basePath) {
+    const absolutePath = filePath
+      ? `${settings.basePath}/${repo}/${filePath}`
+      : `${settings.basePath}/${repo}`;
     return createOpenButton(settings, absolutePath, lineNumber, compact);
   }
   return createUnconfiguredButton(compact);
 }
 
-/**
- * GitHub PR diff 앵커(#diff-{hash}[LR]{line})에서 라인 번호를 파싱합니다.
- * R(신규 파일 기준)을 우선하고, 없으면 L(원본 기준)을 사용합니다.
- */
-function parseLineFromDiffAnchor(href: string): number | null {
-  return parseLineFromDiffAnchorFromUtils(href, window.location.href);
-}
 
 /**
  * 리뷰 스레드 또는 파일 헤더 주변 DOM에서 관련 라인 번호를 탐색합니다.
@@ -500,7 +497,7 @@ function parseLineFromDiffAnchor(href: string): number | null {
 function findReviewLineNumber(link: HTMLElement, maxAncestorDepth: number = 12): number | null {
   // 링크 href에 라인 번호가 직접 포함된 경우 (가장 빠른 경로)
   if (link instanceof HTMLAnchorElement) {
-    const fromHref = parseLineFromDiffAnchor(link.href);
+    const fromHref = parseLineFromDiffAnchor(link.href, window.location.href);
     if (fromHref !== null) return fromHref;
   }
 
@@ -557,7 +554,7 @@ function findReviewLineNumber(link: HTMLElement, maxAncestorDepth: number = 12):
       const diffAnchors = sibling.querySelectorAll<HTMLAnchorElement>('a[href*="#diff-"]');
       for (let j = 0; j < diffAnchors.length; j++) {
         const a = diffAnchors[j];
-        const line = parseLineFromDiffAnchor(a.href);
+        const line = parseLineFromDiffAnchor(a.href, window.location.href);
         if (line !== null) return line;
       }
     }
@@ -1476,8 +1473,7 @@ function injectIntoRepoView(settings: UserSettings | null): void {
     : codeBtn;
   if (!insertTarget.parentElement) return;
 
-  const absolutePath = settings?.basePath ? `${settings.basePath}/${repoInfo.repo}` : "";
-  const btn = resolveButton(settings, absolutePath, null, true);
+  const btn = resolveButton(settings, repoInfo.repo, undefined, null, true);
   btn.classList.add(REPO_INJECTED_MARKER);
 
   // "Code" 버튼 바로 앞에 삽입 → [Add file] [우리 버튼] [Code] 순서 유지
@@ -1514,8 +1510,7 @@ function injectIntoFileTreeRows(settings: UserSettings | null): void {
     if (!titleLink.closest("tr, [role='row']")) return;
 
     const rowFilePath = pageInfo.filePath ? `${pageInfo.filePath}/${itemName}` : itemName;
-    const absolutePath = settings?.basePath ? `${settings.basePath}/${pageInfo.repo}/${rowFilePath}` : "";
-    const btn = resolveButton(settings, absolutePath, null, true);
+    const btn = resolveButton(settings, pageInfo.repo, rowFilePath, null, true);
     btn.classList.add(TREE_ROW_INJECTED_MARKER);
     titleLink.insertAdjacentElement("afterend", btn);
   });
@@ -1557,8 +1552,7 @@ function injectIntoFileView(settings: UserSettings | null): void {
 
   const lineNumber = parseLineNumber(window.location.hash);
 
-  const absolutePath = settings?.basePath ? `${settings.basePath}/${urlInfo.repo}/${urlInfo.filePath}` : "";
-  const btn = resolveButton(settings, absolutePath, lineNumber, false);
+  const btn = resolveButton(settings, urlInfo.repo, urlInfo.filePath, lineNumber, false);
   btn.classList.add(INJECTED_MARKER);
 
   // 확장 기능 버튼이 GitHub 네이티브 Raw/Copy 그룹과 섞이지 않도록 액션 영역 앞쪽에 분리 삽입합니다.
@@ -1616,8 +1610,7 @@ function injectIntoPrFilesView(settings: UserSettings | null): void {
     const filePath = header.getAttribute("data-path");
     if (!filePath) return;
 
-    const absolutePath = settings?.basePath ? `${settings.basePath}/${prInfo.repo}/${filePath}` : "";
-    const btn = resolveButton(settings, absolutePath, null, true);
+    const btn = resolveButton(settings, prInfo.repo, filePath, null, true);
     btn.classList.add(INJECTED_MARKER);
 
     // GitHub의 .file-actions 구조 (로그인 시):
@@ -1736,8 +1729,7 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
     // 인접 파일의 라인 번호를 잘못 가져오지 않도록 제한합니다.
     const lineNumber = findReviewLineNumber(headerRow, 1);
 
-    const absolutePath = settings?.basePath ? `${settings.basePath}/${prInfo.repo}/${filePath}` : "";
-    const btn = resolveButton(settings, absolutePath, lineNumber, true);
+    const btn = resolveButton(settings, prInfo.repo, filePath, lineNumber, true);
     btn.classList.add(INJECTED_MARKER);
 
     const firstActionChild = actionsGroup.firstElementChild as HTMLElement | null;
@@ -1791,8 +1783,7 @@ function injectIntoPrReviewThreadHeaders(settings: UserSettings | null): void {
     // 코멘트가 달린 라인 번호 탐색 (링크 href → DOM 상향 순회 순서로 시도)
     const lineNumber = findReviewLineNumber(link);
 
-    const absolutePath = settings?.basePath ? `${settings.basePath}/${prInfo.repo}/${text}` : "";
-    const btn = resolveButton(settings, absolutePath, lineNumber, true);
+    const btn = resolveButton(settings, prInfo.repo, text, lineNumber, true);
     btn.classList.add(INJECTED_MARKER, "gdt-comment-btn");
 
     // 삽입 위치 결정:
