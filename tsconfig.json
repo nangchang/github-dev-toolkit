@@ -2,10 +2,11 @@
   "compilerOptions": {
     "target": "ES2019",
     "module": "commonjs",
-    "lib": ["ES2019", "DOM"],
+    "lib": ["ES2025", "DOM"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
+    "types": ["chrome"],
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

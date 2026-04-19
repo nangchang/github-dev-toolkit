@@ -1674,13 +1674,13 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
   const prInfo = parseGitHubPrUrl(window.location.href);
   if (!prInfo) return;
 
-  // 헤더 탐색: expand 버튼 경유 + 클래스 직접 탐색 (하이픈/언더스코어 두 형태 모두 지원)
+  // 헤더 탐색: Viewed 버튼 경유 + 클래스 직접 탐색 (하이픈/언더스코어 두 형태 모두 지원)
   const headerRowSet = new Set<HTMLElement>();
   const HEADER_SELECTOR =
     '[class*="diff-file-header"], [class*="diff_file_header"], [class*="DiffFileHeader"]';
 
   document.querySelectorAll<HTMLElement>(
-    'button[aria-label^="Expand all lines:"], button[aria-label^="Collapse all lines:"]'
+    'button[aria-label^="Viewed:"], button[aria-label^="Not Viewed:"]'
   ).forEach((btn) => {
     const h = btn.closest<HTMLElement>(HEADER_SELECTOR);
     if (h) headerRowSet.add(h);
@@ -1714,9 +1714,15 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
     if (!filePath) {
       // a.Link--primary 텍스트에 전체 파일 경로가 담겨 있음
       const fileLink = headerRow.querySelector<HTMLAnchorElement>("a.Link--primary");
-      const text = fileLink?.textContent?.trim();
-      if (text && (text.includes("/") || /\.\w+$/.test(text))) {
-        filePath = text;
+
+      // <code>&lrm;<!-- -->AGENTS.md<!-- -->&lrm;</code> 형태로 되어 있음.
+      // 실제 text string 을 읽으면 \u200EAGENTS.md\u200E 형태로 읽히는 것으로 보임
+      const text = fileLink?.querySelector<HTMLElement>("code")?.textContent?.trim();
+      if (text) {
+        filePath = text
+          .replaceAll("&lrm;", "")
+          .replaceAll("\u200E", "")
+          .trim();
       }
     }
 
@@ -1727,7 +1733,7 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
 
     // Preview UX 파일 헤더에서는 현재 파일 컨테이너 범위까지만 탐색해
     // 인접 파일의 라인 번호를 잘못 가져오지 않도록 제한합니다.
-    const lineNumber = findReviewLineNumber(headerRow, 1);
+    const lineNumber = findReviewLineNumber(headerRow, 2);
 
     const btn = resolveButton(settings, prInfo.repo, filePath, lineNumber, true);
     btn.classList.add(INJECTED_MARKER);
