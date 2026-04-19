@@ -57,6 +57,9 @@ const TREE_ROW_INJECTED_MARKER = "gdt-tree-row-btn";
 /** 번역 버튼이 이미 삽입됐음을 표시하는 dataset 키 (camelCase) */
 const TRANSLATE_INJECTED_ATTR = "gdtTranslateInjected";
 
+/** 진행 중인 번역 요청을 식별하는 dataset 키 (camelCase) */
+const TRANSLATE_REQUEST_ID_ATTR = "gdtTranslateRequestId";
+
 /** 번역 UI 래퍼 클래스 */
 const TRANSLATE_CONTROLS_CLASS = "gdt-translate-controls";
 
@@ -1139,10 +1142,25 @@ function createTranslationLanguagePicker(): {
   return { wrapper, select };
 }
 
+function nextTranslationRequestId(resultContainer: HTMLElement): string {
+  const currentId = parseInt(resultContainer.dataset[TRANSLATE_REQUEST_ID_ATTR] ?? "0", 10);
+  const requestId = String((isNaN(currentId) ? 0 : currentId) + 1);
+  resultContainer.dataset[TRANSLATE_REQUEST_ID_ATTR] = requestId;
+  return requestId;
+}
+
+function isCurrentTranslationRequest(
+  resultContainer: HTMLElement,
+  requestId: string
+): boolean {
+  return resultContainer.dataset[TRANSLATE_REQUEST_ID_ATTR] === requestId;
+}
+
 function resetTranslationResult(
   btn: HTMLButtonElement,
   resultContainer: HTMLElement
 ): void {
+  nextTranslationRequestId(resultContainer);
   delete resultContainer.dataset.gdtTranslated;
   resultContainer.textContent = "";
   resultContainer.hidden = true;
@@ -1182,13 +1200,19 @@ function handleTranslateClick(
   }
 
   const targetLanguage = parseTranslationTargetLanguage(languageSelect.value);
+  const requestId = nextTranslationRequestId(resultContainer);
+
   translateSegments(segments, targetLanguage).then((translatedSegments) => {
+    if (!isCurrentTranslationRequest(resultContainer, requestId)) return;
+
     renderTranslatedSegments(resultContainer, translatedSegments);
     resultContainer.dataset.gdtTranslated = "true";
     resultContainer.hidden = false;
     setTranslateButtonLabel(btn, "btnHideTranslation");
     btn.disabled = false;
   }).catch((err: unknown) => {
+    if (!isCurrentTranslationRequest(resultContainer, requestId)) return;
+
     btn.disabled = false;
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "already-target") {
