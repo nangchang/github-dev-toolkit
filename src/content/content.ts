@@ -934,6 +934,42 @@ function getOrderedListStart(list: HTMLOListElement): number {
   return list.start || 1;
 }
 
+function getOrderedListItemNumber(item: HTMLLIElement, fallback: number): number {
+  if (!item.hasAttribute("value")) {
+    return fallback;
+  }
+
+  const value = Number.parseInt(item.getAttribute("value") ?? "", 10);
+  return Number.isNaN(value) ? fallback : value;
+}
+
+function appendListTranslationSegments(
+  segments: TranslationSegment[],
+  list: HTMLUListElement | HTMLOListElement
+): void {
+  const isOrdered = list instanceof HTMLOListElement;
+  let listNumber = isOrdered ? getOrderedListStart(list) : 1;
+  const listStep = isOrdered && list.reversed ? -1 : 1;
+
+  Array.from(list.children).forEach((child) => {
+    if (!(child instanceof HTMLLIElement)) {
+      return;
+    }
+
+    const itemNumber = isOrdered ? getOrderedListItemNumber(child, listNumber) : undefined;
+    appendTranslationSegment(
+      segments,
+      child,
+      isOrdered ? "ordered-list-item" : "list-item",
+      itemNumber
+    );
+
+    if (isOrdered && itemNumber !== undefined) {
+      listNumber = itemNumber + listStep;
+    }
+  });
+}
+
 function collectTranslationSegments(node: Node, segments: TranslationSegment[]): void {
   if (node.nodeType === Node.TEXT_NODE) {
     const text = normalizeTranslationText(node.textContent ?? "");
@@ -953,21 +989,7 @@ function collectTranslationSegments(node: Node, segments: TranslationSegment[]):
   }
 
   if (node.tagName === "UL" || node.tagName === "OL") {
-    const isOrdered = node instanceof HTMLOListElement;
-    let listNumber = isOrdered ? getOrderedListStart(node) : 1;
-    const listStep = isOrdered && node.reversed ? -1 : 1;
-
-    Array.from(node.children).forEach((child) => {
-      if (child instanceof HTMLElement && child.tagName === "LI") {
-        appendTranslationSegment(
-          segments,
-          child,
-          isOrdered ? "ordered-list-item" : "list-item",
-          isOrdered ? listNumber : undefined
-        );
-        listNumber += listStep;
-      }
-    });
+    appendListTranslationSegments(segments, node as HTMLUListElement | HTMLOListElement);
     return;
   }
 
