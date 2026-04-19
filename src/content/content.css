@@ -297,10 +297,22 @@
   padding-left: 14px;
 }
 
+.gdt-translate-segment--ordered-list-item {
+  position: relative;
+  padding-left: 24px;
+}
+
 .gdt-translate-segment--list-item::before {
   position: absolute;
   left: 0;
   content: "•";
+  color: #8b949e;
+}
+
+.gdt-translate-segment--ordered-list-item::before {
+  position: absolute;
+  left: 0;
+  content: attr(data-gdt-list-number) ".";
   color: #8b949e;
 }
 
@@ -355,7 +367,8 @@
     border-bottom-color: rgba(27, 31, 36, 0.16);
   }
 
-  .gdt-translate-segment--list-item::before {
+  .gdt-translate-segment--list-item::before,
+  .gdt-translate-segment--ordered-list-item::before {
     color: #57606a;
   }
 

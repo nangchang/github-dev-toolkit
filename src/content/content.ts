@@ -69,11 +69,8 @@ const TRANSLATE_ACTIONS_CLASS = "gdt-translate-actions";
 /** 번역 언어 드롭다운 래퍼 클래스 */
 const TRANSLATE_LANGUAGE_WRAPPER_CLASS = "gdt-translate-language-wrapper";
 
-/** 언어 감지가 실패하거나 명백히 틀린 경우 사용할 기본 소스 언어 */
-const TRANSLATE_DEFAULT_SOURCE_BY_TARGET: Record<string, string> = {
-  en: "ko",
-  ko: "en",
-};
+/** 언어 감지가 실패한 비한글 댓글에 사용할 중립 기본 소스 언어 */
+const TRANSLATE_DEFAULT_SOURCE_LANGUAGE = "en";
 
 /** GitHub review comments commonly prefix summary titles with P0-P3 priority labels. */
 const REVIEW_PRIORITY_PREFIX_REGEX = /^P[0-3]\s+/i;
@@ -652,11 +649,12 @@ function createUnconfiguredButton(compact: boolean = false): HTMLAnchorElement {
 /** 번역기 API 인스턴스 캐시 (undefined=미확인, null=미지원) */
 let translatorApiCache: TranslatorFactory | null | undefined = undefined;
 
-type TranslationSegmentKind = "heading" | "paragraph" | "list-item" | "quote";
+type TranslationSegmentKind = "heading" | "paragraph" | "list-item" | "ordered-list-item" | "quote";
 
 interface TranslationSegment {
   kind: TranslationSegmentKind;
   text: string;
+  listNumber?: number;
 }
 
 const TRANSLATION_BLOCK_TAGS = new Set([
@@ -763,8 +761,7 @@ async function getTranslateTargetLanguage(
  */
 function inferCommentLanguage(
   text: string,
-  detectedLanguage: string | undefined,
-  targetLanguage: string
+  detectedLanguage: string | undefined
 ): string {
   const detected = normalizeLanguageCode(detectedLanguage);
   const hangulCount = (text.match(/[\uac00-\ud7af]/g) ?? []).length;
@@ -772,7 +769,7 @@ function inferCommentLanguage(
   if (hangulCount >= 2) return "ko";
   if (detected) return detected;
 
-  return TRANSLATE_DEFAULT_SOURCE_BY_TARGET[targetLanguage] ?? "en";
+  return TRANSLATE_DEFAULT_SOURCE_LANGUAGE;
 }
 
 /**
@@ -798,7 +795,7 @@ async function createTranslatorForText(
     }
   } catch { /* 감지 실패 시 'en' fallback */ }
 
-  const sourceLanguage = inferCommentLanguage(text, detectedLanguage, targetLanguage);
+  const sourceLanguage = inferCommentLanguage(text, detectedLanguage);
   if (sourceLanguage === targetLanguage) throw new Error("already-target");
 
   const avail = await api.availability({ sourceLanguage, targetLanguage });
@@ -914,7 +911,8 @@ function getSegmentKind(element: HTMLElement, text: string, isFirstSegment: bool
 function appendTranslationSegment(
   segments: TranslationSegment[],
   element: HTMLElement,
-  kind?: TranslationSegmentKind
+  kind?: TranslationSegmentKind,
+  listNumber?: number
 ): void {
   const text = normalizeTranslationText(serializeInlineText(element));
   if (!text) return;
@@ -922,7 +920,18 @@ function appendTranslationSegment(
   segments.push({
     kind: kind ?? getSegmentKind(element, text, segments.length === 0),
     text,
+    listNumber,
   });
+}
+
+function getOrderedListStart(list: HTMLOListElement): number {
+  if (list.reversed && !list.hasAttribute("start")) {
+    return Array.from(list.children).filter((child) =>
+      child instanceof HTMLElement && child.tagName === "LI"
+    ).length;
+  }
+
+  return list.start || 1;
 }
 
 function collectTranslationSegments(node: Node, segments: TranslationSegment[]): void {
@@ -944,9 +953,19 @@ function collectTranslationSegments(node: Node, segments: TranslationSegment[]):
   }
 
   if (node.tagName === "UL" || node.tagName === "OL") {
+    const isOrdered = node instanceof HTMLOListElement;
+    let listNumber = isOrdered ? getOrderedListStart(node) : 1;
+    const listStep = isOrdered && node.reversed ? -1 : 1;
+
     Array.from(node.children).forEach((child) => {
       if (child instanceof HTMLElement && child.tagName === "LI") {
-        appendTranslationSegment(segments, child, "list-item");
+        appendTranslationSegment(
+          segments,
+          child,
+          isOrdered ? "ordered-list-item" : "list-item",
+          isOrdered ? listNumber : undefined
+        );
+        listNumber += listStep;
       }
     });
     return;
@@ -979,6 +998,9 @@ function renderTranslatedSegments(
   segments.forEach((segment) => {
     const segmentElement = document.createElement("div");
     segmentElement.className = `gdt-translate-segment gdt-translate-segment--${segment.kind}`;
+    if (segment.kind === "ordered-list-item" && segment.listNumber !== undefined) {
+      segmentElement.dataset.gdtListNumber = String(segment.listNumber);
+    }
     segmentElement.textContent = segment.text;
     resultContainer.appendChild(segmentElement);
   });
