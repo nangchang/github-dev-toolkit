@@ -1733,7 +1733,7 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
 
     // Preview UX 파일 헤더에서는 현재 파일 컨테이너 범위까지만 탐색해
     // 인접 파일의 라인 번호를 잘못 가져오지 않도록 제한합니다.
-    const lineNumber = findReviewLineNumber(headerRow, 1);
+    const lineNumber = findReviewLineNumber(headerRow, 2);
 
     const btn = resolveButton(settings, prInfo.repo, filePath, lineNumber, true);
     btn.classList.add(INJECTED_MARKER);
