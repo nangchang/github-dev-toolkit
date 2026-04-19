@@ -96,6 +96,27 @@ export function parseLineNumber(hash: string): number | null {
   return match ? parseInt(match[1], 10) : null;
 }
 
+/**
+ * PR diff 앵커 hash(#diff-...R10, #diff-...L20)에서 라인 번호를 추출합니다.
+ * R(신규 파일) 우선, 없으면 L(원본 파일) 기준을 사용합니다.
+ */
+export function parseLineFromDiffAnchor(href: string, currentUrl: string): number | null {
+  try {
+    const hash = new URL(href, currentUrl).hash;
+    if (!hash.includes("diff-")) return null;
+
+    const r = hash.match(/R(\d+)/);
+    if (r) return parseInt(r[1], 10);
+
+    const l = hash.match(/L(\d+)/);
+    if (l) return parseInt(l[1], 10);
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** IDE deep link URI를 생성합니다. */
 export function buildIdeUri(
   ide: SupportedIDE,

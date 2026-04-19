@@ -17,6 +17,7 @@ import {
   normalizeLanguageCode as normalizeLanguageCodeFromUtils,
   parseGitHubPrUrl as parseGitHubPrUrlFromUtils,
   parseGitHubRepoUrl as parseGitHubRepoUrlFromUtils,
+  parseLineFromDiffAnchor as parseLineFromDiffAnchorFromUtils,
   parseLineNumber as parseLineNumberFromUtils,
   splitFilePath as splitFilePathFromUtils,
 } from "./content-utils";
@@ -530,17 +531,7 @@ function buildIdeUri(
  * R(신규 파일 기준)을 우선하고, 없으면 L(원본 기준)을 사용합니다.
  */
 function parseLineFromDiffAnchor(href: string): number | null {
-  try {
-    const hash = new URL(href, window.location.href).hash;
-    if (!hash.includes("diff-")) return null;
-    const r = hash.match(/R(\d+)/);
-    if (r) return parseInt(r[1], 10);
-    const l = hash.match(/L(\d+)/);
-    if (l) return parseInt(l[1], 10);
-    return null;
-  } catch {
-    return null;
-  }
+  return parseLineFromDiffAnchorFromUtils(href, window.location.href);
 }
 
 /**

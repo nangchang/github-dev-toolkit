@@ -13,6 +13,7 @@ const {
   normalizeLanguageCode,
   parseGitHubPrUrl,
   parseGitHubRepoUrl,
+  parseLineFromDiffAnchor,
   parseLineNumber,
   splitFilePath,
 } = require("../.test-dist/content/content-utils.js");
@@ -78,6 +79,27 @@ test("parseLineNumber: #L 형식 파싱", () => {
   assert.equal(parseLineNumber("#L42"), 42);
   assert.equal(parseLineNumber("#L10-L20"), 10);
   assert.equal(parseLineNumber("#discussion_r123"), null);
+});
+
+test("parseLineFromDiffAnchor: diff hash에서 라인 번호 추출", () => {
+  const baseUrl = "https://github.com/openai/codex/pull/123/files";
+
+  assert.equal(
+    parseLineFromDiffAnchor("#diff-abcdR24", baseUrl),
+    24
+  );
+  assert.equal(
+    parseLineFromDiffAnchor("#diff-abcdL11", baseUrl),
+    11
+  );
+  assert.equal(
+    parseLineFromDiffAnchor("#discussion_r100", baseUrl),
+    null
+  );
+  assert.equal(
+    parseLineFromDiffAnchor("::bad-url::", baseUrl),
+    null
+  );
 });
 
 test("buildIdeUri: 경로 인코딩과 라인 번호 포함", () => {
