@@ -22,6 +22,7 @@ pnpm-debug.log*
 # Test and coverage output
 coverage/
 .nyc_output/
+.test-dist/
 
 # OS files
 .DS_Store
