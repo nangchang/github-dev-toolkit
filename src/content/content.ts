@@ -1476,13 +1476,16 @@ function handleTranslateClick(
 
 /**
  * 페이지 내 GitHub 코멘트 본문마다 번역 버튼을 삽입합니다.
- * API 가용성은 버튼 클릭 시점에 확인합니다.
+ * Translator API가 없는 Chrome에서는 번역 컨트롤을 삽입하지 않습니다.
+ * 언어 쌍별 availability는 버튼 클릭 시점에 확인합니다.
  *
  * GitHub 코멘트 구조 변형:
  *   - 구버전: <div class="comment-body"><div class="markdown-body">...</div></div>
  *   - 신버전: <div class="comment-body markdown-body js-comment-body">...</div>  (동일 element)
  */
-function injectTranslateButtons(): void {
+async function injectTranslateButtons(): Promise<void> {
+  if (!(await getTranslatorApi())) return;
+
   const excludeSelector = TRANSLATE_EXCLUDE_SELECTORS.join(", ");
 
   // markdown-body를 직접 탐색: 코멘트 컨테이너 안에 있는 것만 대상
@@ -1567,7 +1570,7 @@ async function injectButtons(): Promise<void> {
   injectIntoPrReviewThreadHeaders(settings);
 
   // 6. 코멘트 본문 번역 버튼 삽입 (Chrome Translator API, 미지원 시 무시)
-  injectTranslateButtons();
+  await injectTranslateButtons();
 }
 
 /**
