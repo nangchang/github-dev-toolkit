@@ -75,6 +75,9 @@ const TRANSLATE_DEFAULT_SOURCE_BY_TARGET: Record<string, string> = {
   ko: "en",
 };
 
+/** GitHub review comments commonly prefix summary titles with P0-P3 priority labels. */
+const REVIEW_PRIORITY_PREFIX_REGEX = /^P[0-3]\s+/i;
+
 /** 선택된 라인 번호를 URL에서 파싱하는 정규식 (예: #L42 또는 #L10-L20) */
 const LINE_NUMBER_REGEX = /#L(\d+)(?:-L(\d+))?$/;
 
@@ -873,6 +876,10 @@ function serializeInlineText(node: Node): string {
   return Array.from(node.childNodes).map(serializeInlineText).join("");
 }
 
+function hasReviewPriorityPrefix(text: string): boolean {
+  return REVIEW_PRIORITY_PREFIX_REGEX.test(text);
+}
+
 function isTitleLikeParagraph(element: HTMLElement, text: string, isFirstSegment: boolean): boolean {
   if (!isFirstSegment || element.tagName !== "P" || text.length > 180) {
     return false;
@@ -883,7 +890,7 @@ function isTitleLikeParagraph(element: HTMLElement, text: string, isFirstSegment
   );
 
   return (
-    /^P[0-3]\s+/i.test(text) ||
+    hasReviewPriorityPrefix(text) ||
     firstElementChild?.tagName === "STRONG" ||
     firstElementChild?.tagName === "B"
   );
@@ -962,12 +969,6 @@ function extractTranslationSegments(markdownBody: HTMLElement): TranslationSegme
   const segments: TranslationSegment[] = [];
   Array.from(markdownBody.childNodes).forEach((child) => collectTranslationSegments(child, segments));
   return segments;
-}
-
-function extractTranslatableText(markdownBody: HTMLElement): string {
-  return extractTranslationSegments(markdownBody)
-    .map((segment) => segment.text)
-    .join("\n\n");
 }
 
 function renderTranslatedSegments(
@@ -1177,7 +1178,7 @@ function resetTranslationResult(
  */
 function handleTranslateClick(
   btn: HTMLButtonElement,
-  markdownBody: HTMLElement,
+  sourceSegments: TranslationSegment[],
   resultContainer: HTMLElement,
   languageSelect: HTMLSelectElement
 ): void {
@@ -1192,8 +1193,7 @@ function handleTranslateClick(
   btn.disabled = true;
   btn.title = "";
 
-  const segments = extractTranslationSegments(markdownBody);
-  if (segments.length === 0) {
+  if (sourceSegments.length === 0) {
     btn.disabled = false;
     setTranslateButtonLabel(btn, "btnTranslate");
     return;
@@ -1202,7 +1202,7 @@ function handleTranslateClick(
   const targetLanguage = parseTranslationTargetLanguage(languageSelect.value);
   const requestId = nextTranslationRequestId(resultContainer);
 
-  translateSegments(segments, targetLanguage).then((translatedSegments) => {
+  translateSegments(sourceSegments, targetLanguage).then((translatedSegments) => {
     if (!isCurrentTranslationRequest(resultContainer, requestId)) return;
 
     renderTranslatedSegments(resultContainer, translatedSegments);
@@ -1318,7 +1318,9 @@ function injectTranslateButtons(): void {
     if (!markdownBody.classList.contains("markdown-body") && hasNestedCommentBody(markdownBody)) return;
     if (!isInsideCommentContext(markdownBody)) return;
     if (markdownBody.closest(excludeSelector)) return;
-    if (!extractTranslatableText(markdownBody)) return;
+
+    const sourceSegments = extractTranslationSegments(markdownBody);
+    if (sourceSegments.length === 0) return;
 
     markdownBody.dataset[TRANSLATE_INJECTED_ATTR] = "true";
 
@@ -1341,7 +1343,7 @@ function injectTranslateButtons(): void {
     resultContainer.hidden = true;
 
     btn.addEventListener("click", () =>
-      handleTranslateClick(btn, markdownBody, resultContainer, languageSelect)
+      handleTranslateClick(btn, sourceSegments, resultContainer, languageSelect)
     );
 
     languageSelect.addEventListener("change", () => {
