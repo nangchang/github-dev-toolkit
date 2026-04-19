@@ -6,21 +6,21 @@ import {
   parseTranslationTargetLanguage as parseTranslationTargetLanguageFromTypes,
 } from "../types";
 import {
-  buildIdeUri as buildIdeUriFromUtils,
-  decodePathSegment as decodePathSegmentFromUtils,
-  detectFilePath as detectFilePathFromUtils,
-  getDecodedPathSegments as getDecodedPathSegmentsFromUtils,
-  inferCommentLanguage as inferCommentLanguageFromUtils,
-  isTailFilePath as isTailFilePathFromUtils,
-  normalizeDetectedLanguageCode as normalizeDetectedLanguageCodeFromUtils,
-  normalizeFilePathCandidate as normalizeFilePathCandidateFromUtils,
-  normalizeLanguageCode as normalizeLanguageCodeFromUtils,
-  parseGitHubPrUrl as parseGitHubPrUrlFromUtils,
-  parseGitHubRepoUrl as parseGitHubRepoUrlFromUtils,
-  parseGitHubUrlBase as parseGitHubUrlBaseFromUtils,
-  parseLineFromDiffAnchor as parseLineFromDiffAnchorFromUtils,
-  parseLineNumber as parseLineNumberFromUtils,
-  splitFilePath as splitFilePathFromUtils,
+  buildIdeUri,
+  decodePathSegment,
+  detectFilePath,
+  getDecodedPathSegments,
+  inferCommentLanguage,
+  isTailFilePath,
+  normalizeDetectedLanguageCode,
+  normalizeFilePathCandidate,
+  normalizeLanguageCode,
+  parseGitHubPrUrl,
+  parseGitHubRepoUrl,
+  parseGitHubUrlBase,
+  parseLineFromDiffAnchor,
+  parseLineNumber,
+  splitFilePath,
 } from "./content-utils";
 
 // ============================================================
@@ -216,6 +216,26 @@ const COMMENT_MARKDOWN_SELECTORS = [
   ...GENERIC_MARKDOWN_SELECTORS,
 ];
 
+const COMMENT_BODY_SELECTOR = COMMENT_BODY_SELECTORS.join(", ");
+const COMMENT_CONTEXT_SELECTOR = COMMENT_CONTEXT_SELECTORS.join(", ");
+const COMMENT_MARKDOWN_SELECTOR = COMMENT_MARKDOWN_SELECTORS.join(", ");
+const TRANSLATE_EXCLUDE_SELECTOR = TRANSLATE_EXCLUDE_SELECTORS.join(", ");
+
+const REVIEW_THREAD_HEADER_LINK_SELECTOR = [
+  'summary div span a[href*="#diff-"]',
+  ".review-thread-header a",
+  "[class*='review-thread'] a",
+  ".js-resolvable-thread-contents > * > a",
+  ".js-resolvable-thread-contents > * > * > a",
+].join(", ");
+
+const REVIEW_THREAD_EXCLUDE_SELECTOR = [
+  ".comment-body", ".js-comment-body",
+  ".markdown-body", "[class*='markdown-body']",
+  ".file-header", ".js-file-header", "[class*='diff-file-header']", "[class*='diff_file_header']", "[class*='DiffFileHeader']",
+  "nav", ".breadcrumb", "#repository-container-header",
+].join(", ");
+
 /** 화면에 표시된 라인 배지를 GitHub의 현재 URL hash와 동기화하는 콜백 목록 */
 const lineBadgeUpdaters = new Set<() => void>();
 
@@ -224,36 +244,6 @@ function syncLineBadges(): void {
   lineBadgeUpdaters.forEach((updateLineBadge) => updateLineBadge());
 }
 
-/** GitHub URL 경로 segment를 안전하게 디코딩합니다. */
-function decodePathSegment(segment: string): string {
-  return decodePathSegmentFromUtils(segment);
-}
-
-/** URL pathname을 segment 단위로 나눠 이후 ref/file 경로 비교에 사용할 수 있게 만듭니다. */
-function getDecodedPathSegments(pathname: string): string[] {
-  return getDecodedPathSegmentsFromUtils(pathname);
-}
-
-/** 파일 경로 비교용으로 빈 segment를 제거합니다. */
-function splitFilePath(filePath: string): string[] {
-  return splitFilePathFromUtils(filePath);
-}
-
-/**
- * DOM/JSON에서 추출한 path 후보를 로컬 파일 경로 후보로 정규화합니다.
- * URL이나 여러 줄 문자열은 GitHub 데이터 안의 파일 경로가 아니므로 제외합니다.
- */
-function normalizeFilePathCandidate(value: string): string | null {
-  return normalizeFilePathCandidateFromUtils(value);
-}
-
-/**
- * GitHub blob URL의 ref+file tail에서 주어진 파일 경로가 끝부분과 일치하는지 확인합니다.
- * 브랜치명에 slash가 들어가도 파일 경로 tail은 보통 안정적으로 비교할 수 있습니다.
- */
-function isTailFilePath(tailSegments: string[], filePath: string): boolean {
-  return isTailFilePathFromUtils(tailSegments, filePath);
-}
 
 /**
  * GitHub 문서 제목에서 파일 경로를 추출합니다.
@@ -434,16 +424,6 @@ function resolveBlobFilePath(
 // URL 분석 유틸리티
 // ============================================================
 
-/**
- * 텍스트가 파일 경로처럼 보이는지 검사합니다.
- * 허용 조건: 공백·URL·특수문자 없음, 파일 확장자 보유
- *   - 슬래시 포함 → 하위 경로 파일 (예: src/foo.ts)
- *   - 슬래시 없음 + 확장자 있음 → 루트 파일 (예: package.json, tsconfig.json)
- * @returns 정규화된 파일 경로 또는 null
- */
-function detectFilePath(text: string): string | null {
-  return detectFilePathFromUtils(text);
-}
 
 /**
  * 현재 GitHub URL에서 오너(owner), 레포지토리(repo), 파일 경로(filePath), kind를 파싱합니다.
@@ -452,7 +432,7 @@ function detectFilePath(text: string): string | null {
  *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts", kind: "blob" }
  */
 function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string; kind: "root" | "blob" | "raw" | "tree" } | null {
-  const parsed = parseGitHubUrlBaseFromUtils(url);
+  const parsed = parseGitHubUrlBase(url);
   if (!parsed) return null;
 
   if (parsed.kind === "root") {
@@ -480,57 +460,27 @@ function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: 
   }
 }
 
-/**
- * GitHub 레포지토리 메인 페이지(루트) 또는 트리 뷰 URL을 파싱합니다.
- * 대상: github.com/{owner}/{repo}  또는  github.com/{owner}/{repo}/tree/...
- * 비대상: blob, pull, issues, commits 등 세부 경로는 null 반환.
- * 예: https://github.com/user/my-repo        → { owner: "user", repo: "my-repo" }
- *     https://github.com/user/my-repo/tree/main/src → { owner: "user", repo: "my-repo" }
- */
-function parseGitHubRepoUrl(url: string): { owner: string; repo: string } | null {
-  return parseGitHubRepoUrlFromUtils(url);
-}
-
-/**
- * PR URL에서 오너(owner), 레포지토리(repo)를 파싱합니다.
- * 예: https://github.com/user/my-repo/pull/123/files
- *     → { owner: "user", repo: "my-repo" }
- */
-function parseGitHubPrUrl(url: string): { owner: string; repo: string } | null {
-  return parseGitHubPrUrlFromUtils(url);
-}
-
-/**
- * URL 해시(#L10, #L10-L20)에서 라인 번호를 파싱합니다.
- * @returns 시작 라인 번호 (없으면 null)
- */
-function parseLineNumber(hash: string): number | null {
-  return parseLineNumberFromUtils(hash);
-}
-
-/**
- * IDE URI를 구성합니다.
- * 형태: {scheme}://file/{absoluteFilePath}:{lineNumber}
- */
-function buildIdeUri(
-  ide: SupportedIDE,
-  absolutePath: string,
-  lineNumber: number | null
-): string {
-  return buildIdeUriFromUtils(ide, absolutePath, lineNumber);
-}
 
 // ============================================================
 // 버튼 생성
 // ============================================================
 
-/**
- * GitHub PR diff 앵커(#diff-{hash}[LR]{line})에서 라인 번호를 파싱합니다.
- * R(신규 파일 기준)을 우선하고, 없으면 L(원본 기준)을 사용합니다.
- */
-function parseLineFromDiffAnchor(href: string): number | null {
-  return parseLineFromDiffAnchorFromUtils(href, window.location.href);
+function resolveButton(
+  settings: UserSettings | null,
+  repo: string,
+  filePath: string | undefined,
+  lineNumber: number | null,
+  compact: boolean
+): HTMLAnchorElement {
+  if (settings?.basePath) {
+    const absolutePath = filePath
+      ? `${settings.basePath}/${repo}/${filePath}`
+      : `${settings.basePath}/${repo}`;
+    return createOpenButton(settings, absolutePath, lineNumber, compact);
+  }
+  return createUnconfiguredButton(compact);
 }
+
 
 /**
  * 리뷰 스레드 또는 파일 헤더 주변 DOM에서 관련 라인 번호를 탐색합니다.
@@ -547,7 +497,7 @@ function parseLineFromDiffAnchor(href: string): number | null {
 function findReviewLineNumber(link: HTMLElement, maxAncestorDepth: number = 12): number | null {
   // 링크 href에 라인 번호가 직접 포함된 경우 (가장 빠른 경로)
   if (link instanceof HTMLAnchorElement) {
-    const fromHref = parseLineFromDiffAnchor(link.href);
+    const fromHref = parseLineFromDiffAnchor(link.href, window.location.href);
     if (fromHref !== null) return fromHref;
   }
 
@@ -604,7 +554,7 @@ function findReviewLineNumber(link: HTMLElement, maxAncestorDepth: number = 12):
       const diffAnchors = sibling.querySelectorAll<HTMLAnchorElement>('a[href*="#diff-"]');
       for (let j = 0; j < diffAnchors.length; j++) {
         const a = diffAnchors[j];
-        const line = parseLineFromDiffAnchor(a.href);
+        const line = parseLineFromDiffAnchor(a.href, window.location.href);
         if (line !== null) return line;
       }
     }
@@ -798,14 +748,6 @@ async function getTranslatorApi(): Promise<TranslatorFactory | null> {
   return translatorApiCache;
 }
 
-/** Translator API가 기대하는 짧은 BCP-47 언어 코드로 정규화합니다. */
-function normalizeLanguageCode(language: string | undefined): string | null {
-  return normalizeLanguageCodeFromUtils(language);
-}
-
-function normalizeDetectedLanguageCode(language: string | undefined): string | null {
-  return normalizeDetectedLanguageCodeFromUtils(language);
-}
 
 /** 브라우저 UI 언어에서 BCP-47 기본 태그를 추출합니다. 예: "ko-KR" -> "ko" */
 function getBrowserTargetLanguage(): string {
@@ -836,16 +778,6 @@ async function getTranslateTargetLanguage(
   return normalizeLanguageCode(storedLanguage) ?? getBrowserTargetLanguage();
 }
 
-/**
- * 짧은 댓글에서 Chrome LanguageDetector가 오판하는 경우를 줄이기 위한 가벼운 보정입니다.
- * 한글은 문자 종류만으로 안정적으로 구분하고, 그 외 언어는 detector 결과를 우선합니다.
- */
-function inferCommentLanguage(
-  text: string,
-  detectedLanguage: string | undefined
-): string {
-  return inferCommentLanguageFromUtils(text, detectedLanguage);
-}
 
 /**
  * 텍스트를 감지된 소스 언어에서 사용자 설정 대상 언어로 번역할 Translator를 만듭니다.
@@ -1212,11 +1144,11 @@ function renderTranslatedSegments(
 }
 
 function hasNestedCommentBody(element: HTMLElement): boolean {
-  return Boolean(element.querySelector(COMMENT_BODY_SELECTORS.join(", ")));
+  return Boolean(element.querySelector(COMMENT_BODY_SELECTOR));
 }
 
 function isInsideCommentContext(element: HTMLElement): boolean {
-  return Boolean(element.closest(COMMENT_CONTEXT_SELECTORS.join(", ")));
+  return Boolean(element.closest(COMMENT_CONTEXT_SELECTOR));
 }
 
 function hasTranslateControls(element: HTMLElement): boolean {
@@ -1416,10 +1348,8 @@ function handleTranslateClick(
 async function injectTranslateButtons(): Promise<void> {
   if (!(await getTranslatorApi())) return;
 
-  const excludeSelector = TRANSLATE_EXCLUDE_SELECTORS.join(", ");
-
   // markdown-body를 직접 탐색: 코멘트 컨테이너 안에 있는 것만 대상
-  const candidates = document.querySelectorAll<HTMLElement>(COMMENT_MARKDOWN_SELECTORS.join(", "));
+  const candidates = document.querySelectorAll<HTMLElement>(COMMENT_MARKDOWN_SELECTOR);
 
   candidates.forEach((markdownBody) => {
     if (markdownBody.dataset[TRANSLATE_INJECTED_ATTR]) {
@@ -1429,7 +1359,7 @@ async function injectTranslateButtons(): Promise<void> {
 
     if (!markdownBody.classList.contains("markdown-body") && hasNestedCommentBody(markdownBody)) return;
     if (!isInsideCommentContext(markdownBody)) return;
-    if (markdownBody.closest(excludeSelector)) return;
+    if (markdownBody.closest(TRANSLATE_EXCLUDE_SELECTOR)) return;
 
     const sourceSegments = extractTranslationSegments(markdownBody);
     if (sourceSegments.length === 0) return;
@@ -1543,14 +1473,7 @@ function injectIntoRepoView(settings: UserSettings | null): void {
     : codeBtn;
   if (!insertTarget.parentElement) return;
 
-  let btn: HTMLAnchorElement;
-  if (settings && settings.basePath) {
-    const absolutePath = `${settings.basePath}/${repoInfo.repo}`;
-    btn = createOpenButton(settings, absolutePath, null, true);
-  } else {
-    btn = createUnconfiguredButton(true);
-  }
-
+  const btn = resolveButton(settings, repoInfo.repo, undefined, null, true);
   btn.classList.add(REPO_INJECTED_MARKER);
 
   // "Code" 버튼 바로 앞에 삽입 → [Add file] [우리 버튼] [Code] 순서 유지
@@ -1587,15 +1510,7 @@ function injectIntoFileTreeRows(settings: UserSettings | null): void {
     if (!titleLink.closest("tr, [role='row']")) return;
 
     const rowFilePath = pageInfo.filePath ? `${pageInfo.filePath}/${itemName}` : itemName;
-    const absolutePath = settings?.basePath ? `${settings.basePath}/${pageInfo.repo}/${rowFilePath}` : "";
-
-    let btn: HTMLAnchorElement;
-    if (settings && settings.basePath) {
-      btn = createOpenButton(settings, absolutePath, null, true);
-    } else {
-      btn = createUnconfiguredButton(true);
-    }
-
+    const btn = resolveButton(settings, pageInfo.repo, rowFilePath, null, true);
     btn.classList.add(TREE_ROW_INJECTED_MARKER);
     titleLink.insertAdjacentElement("afterend", btn);
   });
@@ -1637,14 +1552,7 @@ function injectIntoFileView(settings: UserSettings | null): void {
 
   const lineNumber = parseLineNumber(window.location.hash);
 
-  let btn: HTMLAnchorElement;
-  if (settings && settings.basePath) {
-    const absolutePath = `${settings.basePath}/${urlInfo.repo}/${urlInfo.filePath}`;
-    btn = createOpenButton(settings, absolutePath, lineNumber);
-  } else {
-    btn = createUnconfiguredButton();
-  }
-
+  const btn = resolveButton(settings, urlInfo.repo, urlInfo.filePath, lineNumber, false);
   btn.classList.add(INJECTED_MARKER);
 
   // 확장 기능 버튼이 GitHub 네이티브 Raw/Copy 그룹과 섞이지 않도록 액션 영역 앞쪽에 분리 삽입합니다.
@@ -1702,14 +1610,7 @@ function injectIntoPrFilesView(settings: UserSettings | null): void {
     const filePath = header.getAttribute("data-path");
     if (!filePath) return;
 
-    let btn: HTMLAnchorElement;
-    if (settings && settings.basePath) {
-      const absolutePath = `${settings.basePath}/${prInfo.repo}/${filePath}`;
-      btn = createOpenButton(settings, absolutePath, null, true);
-    } else {
-      btn = createUnconfiguredButton(true);
-    }
-
+    const btn = resolveButton(settings, prInfo.repo, filePath, null, true);
     btn.classList.add(INJECTED_MARKER);
 
     // GitHub의 .file-actions 구조 (로그인 시):
@@ -1828,14 +1729,7 @@ function injectIntoPrPreviewUx(settings: UserSettings | null): void {
     // 인접 파일의 라인 번호를 잘못 가져오지 않도록 제한합니다.
     const lineNumber = findReviewLineNumber(headerRow, 1);
 
-    let btn: HTMLAnchorElement;
-    if (settings && settings.basePath) {
-      const absolutePath = `${settings.basePath}/${prInfo.repo}/${filePath}`;
-      btn = createOpenButton(settings, absolutePath, lineNumber, true);
-    } else {
-      btn = createUnconfiguredButton(true);
-    }
-
+    const btn = resolveButton(settings, prInfo.repo, filePath, lineNumber, true);
     btn.classList.add(INJECTED_MARKER);
 
     const firstActionChild = actionsGroup.firstElementChild as HTMLElement | null;
@@ -1871,23 +1765,7 @@ function injectIntoPrReviewThreadHeaders(settings: UserSettings | null): void {
   if (!prInfo) return;
 
   // 여러 선택자 전략을 한 번에 병합해 후보 링크 수집
-  const candidateLinks = document.querySelectorAll<HTMLAnchorElement>(
-    [
-      'summary div span a[href*="#diff-"]',
-      ".review-thread-header a",
-      "[class*='review-thread'] a",
-      ".js-resolvable-thread-contents > * > a",
-      ".js-resolvable-thread-contents > * > * > a",
-    ].join(", ")
-  );
-
-  // 버튼을 삽입하면 안 되는 영역 (코멘트 본문, 기존 파일 헤더 등)
-  const excludeSelector = [
-    ".comment-body", ".js-comment-body",
-    ".markdown-body", "[class*='markdown-body']",
-    ".file-header", ".js-file-header", "[class*='diff-file-header']", "[class*='diff_file_header']", "[class*='DiffFileHeader']",
-    "nav", ".breadcrumb", "#repository-container-header",
-  ].join(", ");
+  const candidateLinks = document.querySelectorAll<HTMLAnchorElement>(REVIEW_THREAD_HEADER_LINK_SELECTOR);
 
   candidateLinks.forEach((link) => {
     const text = detectFilePath(link.textContent?.trim() ?? "");
@@ -1896,7 +1774,7 @@ function injectIntoPrReviewThreadHeaders(settings: UserSettings | null): void {
     if (!text) return;
 
     // 제외 영역 안이면 건너뜀
-    if (link.closest(excludeSelector)) return;
+    if (link.closest(REVIEW_THREAD_EXCLUDE_SELECTOR)) return;
 
     // 이미 처리된 링크 건너뜀
     if (link.dataset.gdtProcessed) return;
@@ -1905,13 +1783,7 @@ function injectIntoPrReviewThreadHeaders(settings: UserSettings | null): void {
     // 코멘트가 달린 라인 번호 탐색 (링크 href → DOM 상향 순회 순서로 시도)
     const lineNumber = findReviewLineNumber(link);
 
-    let btn: HTMLAnchorElement;
-    if (settings && settings.basePath) {
-      const absolutePath = `${settings.basePath}/${prInfo.repo}/${text}`;
-      btn = createOpenButton(settings, absolutePath, lineNumber, true);
-    } else {
-      btn = createUnconfiguredButton(true);
-    }
+    const btn = resolveButton(settings, prInfo.repo, text, lineNumber, true);
     btn.classList.add(INJECTED_MARKER, "gdt-comment-btn");
 
     // 삽입 위치 결정:

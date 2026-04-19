@@ -29,7 +29,6 @@ coverage/
 Thumbs.db
 
 # Claude Code
-CLAUDE.md
 .claude/
 
 # Editor and tool state
