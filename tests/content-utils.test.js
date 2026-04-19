@@ -32,10 +32,12 @@ test("getDecodedPathSegments / splitFilePath", () => {
     "main",
   ]);
   assert.deepEqual(splitFilePath("/src//app/index.ts"), ["src", "app", "index.ts"]);
+  assert.deepEqual(splitFilePath("/src/./../safe/file.ts"), ["src", "safe", "file.ts"]);
 });
 
 test("normalizeFilePathCandidate: 유효한 파일 경로만 정규화", () => {
   assert.equal(normalizeFilePathCandidate(" /src/foo%20bar.ts "), "src/foo bar.ts");
+  assert.equal(normalizeFilePathCandidate("../src/../foo.ts"), "src/foo.ts");
   assert.equal(normalizeFilePathCandidate("https://example.com/a.ts"), null);
   assert.equal(normalizeFilePathCandidate("src/foo.ts\nsrc/bar.ts"), null);
 });

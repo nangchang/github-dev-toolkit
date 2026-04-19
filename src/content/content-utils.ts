@@ -21,9 +21,11 @@ export function getDecodedPathSegments(pathname: string): string[] {
   return pathname.split("/").filter(Boolean).map(decodePathSegment);
 }
 
-/** 빈 세그먼트를 제거한 파일 경로 배열로 변환합니다. */
+/** 빈 세그먼트와 상대 경로 토큰(`.`/`..`)을 제거한 파일 경로 배열로 변환합니다. */
 export function splitFilePath(filePath: string): string[] {
-  return filePath.split("/").filter(Boolean);
+  return filePath
+    .split("/")
+    .filter((segment) => segment && segment !== "." && segment !== "..");
 }
 
 /**

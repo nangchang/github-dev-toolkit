@@ -14,11 +14,16 @@ test("validateBasePath: 공백/상대경로/절대경로 판별", () => {
   assert.equal(validateBasePath("   "), "empty");
   assert.equal(validateBasePath("Users/me/Github"), "must-start-with-slash");
   assert.equal(validateBasePath("/Users/me/Github"), null);
+  assert.equal(validateBasePath("C:/Users/me/Github"), null);
+  assert.equal(validateBasePath("C:\\Users\\me\\Github"), null);
+  assert.equal(validateBasePath("C:Users\\me\\Github"), "must-start-with-slash");
 });
 
 test("normalizeBasePath: trim + trailing slash 제거", () => {
   assert.equal(normalizeBasePath(" /Users/me/Github/ "), "/Users/me/Github");
   assert.equal(normalizeBasePath("/Volumes/data/Github"), "/Volumes/data/Github");
+  assert.equal(normalizeBasePath(" C:\\Users\\me\\Github\\ "), "C:/Users/me/Github");
+  assert.equal(normalizeBasePath("C:/"), "C:/");
 });
 
 test("parseTranslationTargetLanguage: 허용 언어만 유지", () => {
