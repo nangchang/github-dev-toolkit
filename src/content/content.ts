@@ -859,9 +859,14 @@ function normalizeLanguageCode(language: string | undefined): string | null {
   if (!language) return null;
 
   const normalized = language.toLowerCase().split("-")[0];
-  if (UNKNOWN_LANGUAGE_CODES.has(normalized)) return null;
-
   return normalized || null;
+}
+
+function normalizeDetectedLanguageCode(language: string | undefined): string | null {
+  const normalized = normalizeLanguageCode(language);
+  if (!normalized || UNKNOWN_LANGUAGE_CODES.has(normalized)) return null;
+
+  return normalized;
 }
 
 /** 브라우저 UI 언어에서 BCP-47 기본 태그를 추출합니다. 예: "ko-KR" -> "ko" */
@@ -901,7 +906,7 @@ function inferCommentLanguage(
   text: string,
   detectedLanguage: string | undefined
 ): string {
-  const detected = normalizeLanguageCode(detectedLanguage);
+  const detected = normalizeDetectedLanguageCode(detectedLanguage);
   const hangulCount = (text.match(/[\uac00-\ud7af]/g) ?? []).length;
 
   if (hangulCount >= 2) return "ko";
