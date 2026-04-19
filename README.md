@@ -46,6 +46,7 @@ npm run build
 ```bash
 npm run watch   # 파일 변경 시 자동 빌드
 npm run clean   # dist/ 삭제
+npm run test    # 유닛 테스트 실행
 ```
 
 빌드 후 `chrome://extensions`에서 확장 프로그램을 새로고침하면 변경사항이 반영됩니다.

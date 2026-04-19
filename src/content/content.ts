@@ -2,10 +2,26 @@ import {
   SupportedIDE,
   TranslationTargetLanguage,
   UserSettings,
-  IDE_URI_SCHEMES,
   IDE_DISPLAY_NAMES,
-  isTranslationTargetLanguage,
+  parseTranslationTargetLanguage as parseTranslationTargetLanguageFromTypes,
 } from "../types";
+import {
+  buildIdeUri as buildIdeUriFromUtils,
+  decodePathSegment as decodePathSegmentFromUtils,
+  detectFilePath as detectFilePathFromUtils,
+  getDecodedPathSegments as getDecodedPathSegmentsFromUtils,
+  inferCommentLanguage as inferCommentLanguageFromUtils,
+  isTailFilePath as isTailFilePathFromUtils,
+  normalizeDetectedLanguageCode as normalizeDetectedLanguageCodeFromUtils,
+  normalizeFilePathCandidate as normalizeFilePathCandidateFromUtils,
+  normalizeLanguageCode as normalizeLanguageCodeFromUtils,
+  parseGitHubPrUrl as parseGitHubPrUrlFromUtils,
+  parseGitHubRepoUrl as parseGitHubRepoUrlFromUtils,
+  parseGitHubUrlBase as parseGitHubUrlBaseFromUtils,
+  parseLineFromDiffAnchor as parseLineFromDiffAnchorFromUtils,
+  parseLineNumber as parseLineNumberFromUtils,
+  splitFilePath as splitFilePathFromUtils,
+} from "./content-utils";
 
 // ============================================================
 // Chrome Built-in Translator API 타입 선언 (Chrome 138+)
@@ -69,12 +85,6 @@ const TRANSLATE_ACTIONS_CLASS = "gdt-translate-actions";
 
 /** 번역 언어 드롭다운 래퍼 클래스 */
 const TRANSLATE_LANGUAGE_WRAPPER_CLASS = "gdt-translate-language-wrapper";
-
-/** 언어 감지가 실패한 비한글 댓글에 사용할 중립 기본 소스 언어 */
-const TRANSLATE_DEFAULT_SOURCE_LANGUAGE = "en";
-
-/** LanguageDetector가 언어를 확정하지 못했을 때 반환할 수 있는 코드 */
-const UNKNOWN_LANGUAGE_CODES = new Set(["und", "unknown"]);
 
 /** GitHub review comments commonly prefix summary titles with P0-P3 priority labels. */
 const REVIEW_PRIORITY_PREFIX_REGEX = /^P[0-3]\s+/i;
@@ -206,9 +216,6 @@ const COMMENT_MARKDOWN_SELECTORS = [
   ...GENERIC_MARKDOWN_SELECTORS,
 ];
 
-/** 선택된 라인 번호를 URL에서 파싱하는 정규식 (예: #L42 또는 #L10-L20) */
-const LINE_NUMBER_REGEX = /#L(\d+)(?:-L(\d+))?$/;
-
 /** 화면에 표시된 라인 배지를 GitHub의 현재 URL hash와 동기화하는 콜백 목록 */
 const lineBadgeUpdaters = new Set<() => void>();
 
@@ -219,21 +226,17 @@ function syncLineBadges(): void {
 
 /** GitHub URL 경로 segment를 안전하게 디코딩합니다. */
 function decodePathSegment(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
+  return decodePathSegmentFromUtils(segment);
 }
 
 /** URL pathname을 segment 단위로 나눠 이후 ref/file 경로 비교에 사용할 수 있게 만듭니다. */
 function getDecodedPathSegments(pathname: string): string[] {
-  return pathname.split("/").filter(Boolean).map(decodePathSegment);
+  return getDecodedPathSegmentsFromUtils(pathname);
 }
 
 /** 파일 경로 비교용으로 빈 segment를 제거합니다. */
 function splitFilePath(filePath: string): string[] {
-  return filePath.split("/").filter(Boolean);
+  return splitFilePathFromUtils(filePath);
 }
 
 /**
@@ -241,12 +244,7 @@ function splitFilePath(filePath: string): string[] {
  * URL이나 여러 줄 문자열은 GitHub 데이터 안의 파일 경로가 아니므로 제외합니다.
  */
 function normalizeFilePathCandidate(value: string): string | null {
-  const trimmed = value.trim().replace(/^\/+/, "");
-  if (!trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) || trimmed.includes("\n")) {
-    return null;
-  }
-
-  return splitFilePath(trimmed).map(decodePathSegment).join("/");
+  return normalizeFilePathCandidateFromUtils(value);
 }
 
 /**
@@ -254,13 +252,7 @@ function normalizeFilePathCandidate(value: string): string | null {
  * 브랜치명에 slash가 들어가도 파일 경로 tail은 보통 안정적으로 비교할 수 있습니다.
  */
 function isTailFilePath(tailSegments: string[], filePath: string): boolean {
-  const fileSegments = splitFilePath(filePath);
-  if (fileSegments.length === 0 || fileSegments.length >= tailSegments.length) {
-    return false;
-  }
-
-  const tailFileSegments = tailSegments.slice(-fileSegments.length);
-  return fileSegments.every((segment, index) => segment === tailFileSegments[index]);
+  return isTailFilePathFromUtils(tailSegments, filePath);
 }
 
 /**
@@ -450,18 +442,7 @@ function resolveBlobFilePath(
  * @returns 정규화된 파일 경로 또는 null
  */
 function detectFilePath(text: string): string | null {
-  if (!text || text.length > 300 || text.includes("\n") || /\s/.test(text)) return null;
-  // URL 및 npm 스코프 패키지 제외
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text) || text.startsWith("@")) return null;
-  // 슬래시도 없고 점도 없으면 파일 경로로 보기 어려움
-  if (!text.includes("/") && !text.includes(".")) return null;
-  // 허용 문자: 영숫자, 점, 하이픈, 언더스코어, 슬래시
-  if (!/^[a-zA-Z0-9._\-/]+$/.test(text)) return null;
-  // 마지막 segment에 파일 확장자 필수
-  const lastSegment = text.split("/").filter(Boolean).pop() ?? "";
-  if (!/\.[a-zA-Z0-9]{1,10}$/.test(lastSegment)) return null;
-
-  return normalizeFilePathCandidate(text);
+  return detectFilePathFromUtils(text);
 }
 
 /**
@@ -471,31 +452,28 @@ function detectFilePath(text: string): string | null {
  *     → { owner: "user", repo: "my-repo", filePath: "src/index.ts", kind: "blob" }
  */
 function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string; kind: "root" | "blob" | "raw" | "tree" } | null {
+  const parsed = parseGitHubUrlBaseFromUtils(url);
+  if (!parsed) return null;
+
+  if (parsed.kind === "root") {
+    return { owner: parsed.owner, repo: parsed.repo, filePath: "", kind: "root" };
+  }
+
   try {
-    const urlObj = new URL(url);
-    const segments = getDecodedPathSegments(urlObj.pathname);
-    const [owner, repo, kind, ...tailSegments] = segments;
-    
-    if (!owner || !repo) return null;
-    
-    // 루트 경로인 경우
-    if (segments.length === 2) {
-      return { owner, repo, filePath: "", kind: "root" };
-    }
-
-    if (!["blob", "raw", "tree"].includes(kind)) {
-      return null;
-    }
-
     // tree 뷰는 segment 기반 fallback을 허용하지 않습니다.
     // 슬래시 포함 브랜치명(/owner/repo/tree/feature/foo)에서 "foo"가
     // 파일 경로로 잘못 파싱되는 회귀를 방지합니다.
-    const filePath = resolveBlobFilePath(owner, repo, tailSegments, kind !== "tree");
+    const filePath = resolveBlobFilePath(
+      parsed.owner,
+      parsed.repo,
+      parsed.tailSegments,
+      parsed.kind !== "tree"
+    );
     return {
-      owner,
-      repo,
+      owner: parsed.owner,
+      repo: parsed.repo,
       filePath: filePath || "",
-      kind: kind as "blob" | "raw" | "tree",
+      kind: parsed.kind,
     };
   } catch {
     return null;
@@ -510,20 +488,7 @@ function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: 
  *     https://github.com/user/my-repo/tree/main/src → { owner: "user", repo: "my-repo" }
  */
 function parseGitHubRepoUrl(url: string): { owner: string; repo: string } | null {
-  try {
-    const { pathname } = new URL(url);
-    const segments = getDecodedPathSegments(pathname);
-    if (segments.length < 2) return null;
-
-    const [owner, repo, kind] = segments;
-    // 레포 루트(세그먼트 2개) 또는 트리 뷰(/tree/...)만 대상으로 합니다.
-    if (segments.length === 2 || kind === "tree") {
-      return { owner, repo };
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  return parseGitHubRepoUrlFromUtils(url);
 }
 
 /**
@@ -532,14 +497,7 @@ function parseGitHubRepoUrl(url: string): { owner: string; repo: string } | null
  *     → { owner: "user", repo: "my-repo" }
  */
 function parseGitHubPrUrl(url: string): { owner: string; repo: string } | null {
-  try {
-    const urlObj = new URL(url);
-    const match = urlObj.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/\d+/);
-    if (!match) return null;
-    return { owner: match[1], repo: match[2] };
-  } catch {
-    return null;
-  }
+  return parseGitHubPrUrlFromUtils(url);
 }
 
 /**
@@ -547,8 +505,7 @@ function parseGitHubPrUrl(url: string): { owner: string; repo: string } | null {
  * @returns 시작 라인 번호 (없으면 null)
  */
 function parseLineNumber(hash: string): number | null {
-  const match = hash.match(LINE_NUMBER_REGEX);
-  return match ? parseInt(match[1], 10) : null;
+  return parseLineNumberFromUtils(hash);
 }
 
 /**
@@ -560,10 +517,7 @@ function buildIdeUri(
   absolutePath: string,
   lineNumber: number | null
 ): string {
-  const scheme = IDE_URI_SCHEMES[ide];
-  const encodedPath = absolutePath.split("/").map(encodeURIComponent).join("/");
-  const lineFragment = lineNumber ? `:${lineNumber}` : "";
-  return `${scheme}://file/${encodedPath}${lineFragment}`;
+  return buildIdeUriFromUtils(ide, absolutePath, lineNumber);
 }
 
 // ============================================================
@@ -575,17 +529,7 @@ function buildIdeUri(
  * R(신규 파일 기준)을 우선하고, 없으면 L(원본 기준)을 사용합니다.
  */
 function parseLineFromDiffAnchor(href: string): number | null {
-  try {
-    const hash = new URL(href, window.location.href).hash;
-    if (!hash.includes("diff-")) return null;
-    const r = hash.match(/R(\d+)/);
-    if (r) return parseInt(r[1], 10);
-    const l = hash.match(/L(\d+)/);
-    if (l) return parseInt(l[1], 10);
-    return null;
-  } catch {
-    return null;
-  }
+  return parseLineFromDiffAnchorFromUtils(href, window.location.href);
 }
 
 /**
@@ -856,17 +800,11 @@ async function getTranslatorApi(): Promise<TranslatorFactory | null> {
 
 /** Translator API가 기대하는 짧은 BCP-47 언어 코드로 정규화합니다. */
 function normalizeLanguageCode(language: string | undefined): string | null {
-  if (!language) return null;
-
-  const normalized = language.toLowerCase().split("-")[0];
-  return normalized || null;
+  return normalizeLanguageCodeFromUtils(language);
 }
 
 function normalizeDetectedLanguageCode(language: string | undefined): string | null {
-  const normalized = normalizeLanguageCode(language);
-  if (!normalized || UNKNOWN_LANGUAGE_CODES.has(normalized)) return null;
-
-  return normalized;
+  return normalizeDetectedLanguageCodeFromUtils(language);
 }
 
 /** 브라우저 UI 언어에서 BCP-47 기본 태그를 추출합니다. 예: "ko-KR" -> "ko" */
@@ -906,11 +844,7 @@ function inferCommentLanguage(
   text: string,
   detectedLanguage: string | undefined
 ): string {
-  const detected = normalizeDetectedLanguageCode(detectedLanguage);
-  const hangulCount = (text.match(/[\uac00-\ud7af]/g) ?? []).length;
-
-  if (hangulCount >= 2) return "ko";
-  return detected ?? TRANSLATE_DEFAULT_SOURCE_LANGUAGE;
+  return inferCommentLanguageFromUtils(text, detectedLanguage);
 }
 
 /**
@@ -1314,11 +1248,7 @@ function setTranslateButtonLabel(btn: HTMLButtonElement, messageKey: string): vo
 }
 
 function parseTranslationTargetLanguage(value: string): TranslationTargetLanguage {
-  if (isTranslationTargetLanguage(value)) {
-    return value;
-  }
-
-  return "browser";
+  return parseTranslationTargetLanguageFromTypes(value);
 }
 
 function createTranslationLanguageOption(

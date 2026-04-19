@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./.test-dist",
+    "rootDir": "./src"
+  },
+  "include": [
+    "src/types.ts",
+    "src/background/background-utils.ts",
+    "src/content/content-utils.ts",
+    "src/popup/popup-utils.ts"
+  ]
+}

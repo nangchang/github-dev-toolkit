@@ -2,8 +2,9 @@ import {
   SupportedIDE,
   UserSettings,
   IDE_URI_SCHEMES,
-  isTranslationTargetLanguage,
+  parseTranslationTargetLanguage,
 } from "../types";
+import { normalizeBasePath, validateBasePath } from "./popup-utils";
 
 // --- DOM 요소 참조 ---
 // popup.html 하단에서 스크립트를 로드하므로 여기서는 요소가 이미 존재한다고 가정합니다.
@@ -53,8 +54,8 @@ async function loadSettings(): Promise<void> {
   if (result.ide) {
     ideSelect.value = result.ide as SupportedIDE;
   }
-  if (typeof result.targetLanguage === "string" && isTranslationTargetLanguage(result.targetLanguage)) {
-    targetLanguageSelect.value = result.targetLanguage;
+  if (typeof result.targetLanguage === "string") {
+    targetLanguageSelect.value = parseTranslationTargetLanguage(result.targetLanguage);
   }
   if (result.basePath) {
     basePathInput.value = result.basePath as string;
@@ -66,16 +67,17 @@ async function loadSettings(): Promise<void> {
  * content script는 이 값을 기준으로 `{basePath}/{repo}/{filePath}` 형태의 로컬 경로를 만듭니다.
  */
 async function saveSettings(): Promise<void> {
-  const basePath = basePathInput.value.trim();
+  const basePath = basePathInput.value;
+  const basePathError = validateBasePath(basePath);
 
   // 기본 경로 유효성 검사
-  if (!basePath) {
+  if (basePathError === "empty") {
     showStatus(chrome.i18n.getMessage("errorEmptyPath"), "error");
     basePathInput.focus();
     return;
   }
 
-  if (!basePath.startsWith("/")) {
+  if (basePathError === "must-start-with-slash") {
     showStatus(chrome.i18n.getMessage("errorInvalidPath"), "error");
     basePathInput.focus();
     return;
@@ -83,11 +85,9 @@ async function saveSettings(): Promise<void> {
 
   const settings: UserSettings = {
     ide: ideSelect.value as SupportedIDE,
-    targetLanguage: isTranslationTargetLanguage(targetLanguageSelect.value)
-      ? targetLanguageSelect.value
-      : "browser",
+    targetLanguage: parseTranslationTargetLanguage(targetLanguageSelect.value),
     // content script에서 repo/filePath를 이어 붙일 때 중복 slash가 생기지 않게 정규화합니다.
-    basePath: basePath.replace(/\/$/, ""),
+    basePath: normalizeBasePath(basePath),
   };
 
   await chrome.storage.sync.set(settings);

@@ -15,6 +15,15 @@ export function isTranslationTargetLanguage(value: string): value is Translation
   return (TRANSLATION_TARGET_LANGUAGES as readonly string[]).includes(value);
 }
 
+/** 저장소/DOM 등 신뢰할 수 없는 문자열 입력을 번역 대상 언어로 안전하게 파싱합니다. */
+export function parseTranslationTargetLanguage(value: string | undefined): TranslationTargetLanguage {
+  if (value && isTranslationTargetLanguage(value)) {
+    return value;
+  }
+
+  return "browser";
+}
+
 /** popup에서 chrome.storage에 저장/조회하는 사용자 설정 */
 export interface UserSettings {
   /** 사용자가 선택한 IDE */
