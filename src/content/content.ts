@@ -864,7 +864,7 @@ function serializeInlineText(node: Node): string {
 
   if (["CODE", "KBD", "SAMP"].includes(node.tagName)) {
     const inlineText = normalizeTranslationText(node.textContent ?? "");
-    return inlineText ? ` \`${inlineText}\` ` : "";
+    return inlineText ? `\`${inlineText}\`` : "";
   }
 
   return Array.from(node.childNodes).map(serializeInlineText).join("");
@@ -1851,8 +1851,6 @@ function startObserver(): void {
 function init(): void {
   // 초기 로드 시 삽입 시도
   injectButtons();
-  window.setTimeout(injectButtons, 1000);
-  window.setTimeout(injectButtons, 2500);
 
   window.addEventListener("hashchange", syncLineBadges);
   window.addEventListener("popstate", syncLineBadges);
