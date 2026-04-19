@@ -1,4 +1,9 @@
-import { SupportedIDE, TranslationTargetLanguage, UserSettings, IDE_URI_SCHEMES } from "../types";
+import {
+  SupportedIDE,
+  UserSettings,
+  IDE_URI_SCHEMES,
+  isTranslationTargetLanguage,
+} from "../types";
 
 // --- DOM 요소 참조 ---
 // popup.html 하단에서 스크립트를 로드하므로 여기서는 요소가 이미 존재한다고 가정합니다.
@@ -48,8 +53,8 @@ async function loadSettings(): Promise<void> {
   if (result.ide) {
     ideSelect.value = result.ide as SupportedIDE;
   }
-  if (result.targetLanguage) {
-    targetLanguageSelect.value = result.targetLanguage as TranslationTargetLanguage;
+  if (typeof result.targetLanguage === "string" && isTranslationTargetLanguage(result.targetLanguage)) {
+    targetLanguageSelect.value = result.targetLanguage;
   }
   if (result.basePath) {
     basePathInput.value = result.basePath as string;
@@ -78,7 +83,9 @@ async function saveSettings(): Promise<void> {
 
   const settings: UserSettings = {
     ide: ideSelect.value as SupportedIDE,
-    targetLanguage: targetLanguageSelect.value as TranslationTargetLanguage,
+    targetLanguage: isTranslationTargetLanguage(targetLanguageSelect.value)
+      ? targetLanguageSelect.value
+      : "browser",
     // content script에서 repo/filePath를 이어 붙일 때 중복 slash가 생기지 않게 정규화합니다.
     basePath: basePath.replace(/\/$/, ""),
   };

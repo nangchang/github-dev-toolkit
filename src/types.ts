@@ -7,7 +7,13 @@ export type SupportedIDE =
   | "windsurf";
 
 /** 댓글 번역 대상 언어 설정 */
-export type TranslationTargetLanguage = "browser" | "ko" | "en";
+export const TRANSLATION_TARGET_LANGUAGES = ["browser", "ko", "en"] as const;
+export type TranslationTargetLanguage = typeof TRANSLATION_TARGET_LANGUAGES[number];
+
+/** chrome.storage 등 외부 입력값이 지원하는 번역 대상 언어인지 확인합니다. */
+export function isTranslationTargetLanguage(value: string): value is TranslationTargetLanguage {
+  return (TRANSLATION_TARGET_LANGUAGES as readonly string[]).includes(value);
+}
 
 /** popup에서 chrome.storage에 저장/조회하는 사용자 설정 */
 export interface UserSettings {

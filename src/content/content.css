@@ -294,29 +294,34 @@
 
 .gdt-translate-segment--list-item {
   position: relative;
-  padding-left: 14px;
+  padding-left: calc(var(--gdt-list-indent, 0px) + 14px);
 }
 
 .gdt-translate-segment--ordered-list-item {
   position: relative;
-  padding-left: 24px;
+  padding-left: calc(var(--gdt-list-indent, 0px) + 24px);
+}
+
+.gdt-translate-segment--list-continuation {
+  padding-left: calc(var(--gdt-list-indent, 0px) + 14px);
 }
 
 .gdt-translate-segment--list-item::before {
   position: absolute;
-  left: 0;
+  left: var(--gdt-list-indent, 0px);
   content: "•";
   color: #8b949e;
 }
 
 .gdt-translate-segment--ordered-list-item::before {
   position: absolute;
-  left: 0;
+  left: var(--gdt-list-indent, 0px);
   content: attr(data-gdt-list-number) ".";
   color: #8b949e;
 }
 
 .gdt-translate-segment--quote {
+  margin-left: var(--gdt-list-indent, 0px);
   padding-left: 10px;
   border-left: 3px solid rgba(139, 148, 158, 0.4);
   color: #c9d1d9;

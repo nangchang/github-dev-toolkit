@@ -4,6 +4,7 @@ import {
   UserSettings,
   IDE_URI_SCHEMES,
   IDE_DISPLAY_NAMES,
+  isTranslationTargetLanguage,
 } from "../types";
 
 // ============================================================
@@ -72,8 +73,138 @@ const TRANSLATE_LANGUAGE_WRAPPER_CLASS = "gdt-translate-language-wrapper";
 /** 언어 감지가 실패한 비한글 댓글에 사용할 중립 기본 소스 언어 */
 const TRANSLATE_DEFAULT_SOURCE_LANGUAGE = "en";
 
+/** LanguageDetector가 언어를 확정하지 못했을 때 반환할 수 있는 코드 */
+const UNKNOWN_LANGUAGE_CODES = new Set(["und", "unknown"]);
+
 /** GitHub review comments commonly prefix summary titles with P0-P3 priority labels. */
 const REVIEW_PRIORITY_PREFIX_REGEX = /^P[0-3]\s+/i;
+
+const TRANSLATE_EXCLUDE_SELECTORS = [
+  ".file-header",
+  ".js-file-header",
+  "[class*='diff-file-header']",
+  "nav",
+  "#repository-container-header",
+  "textarea",
+  "[contenteditable='true']",
+];
+
+const COMMENT_BODY_SELECTORS = [
+  ".comment-body",
+  ".js-comment-body",
+  ".markdown-body",
+  "[class*='IssueCommentBody']",
+  "[class*='MarkdownBody']",
+  "[class*='markdownBody']",
+  "[class*='RenderedMarkdown']",
+  "[class*='renderedMarkdown']",
+  "[class*='SafeHTMLBox']",
+  "[class*='BodyHTMLContainer']",
+  "[data-testid='comment-body']",
+  "[data-testid*='comment-body' i]",
+  "[data-testid='markdown-body']",
+  "[data-testid*='markdown-body' i]",
+];
+
+const COMMENT_CONTEXT_SELECTORS = [
+  ".comment-body",
+  ".js-comment-body",
+  ".review-comment",
+  ".js-resolvable-thread",
+  ".js-inline-comment",
+  ".js-comment-container",
+  ".timeline-comment",
+  ".js-timeline-item",
+  ".react-issue-comment",
+  "[data-wrapper-timeline-id]",
+  "[id^='issuecomment-']",
+  "[id^='discussion_r']",
+  "[id^='pullrequestreview-']",
+  "[data-testid='comment-header']",
+  "[class*='IssueCommentViewer']",
+  "[class*='PullRequestReviewComment']",
+  "[class*='ReviewComment']",
+  "[class*='ReviewThread']",
+  "[class*='ReviewThreadComment']",
+  "[class*='InlineComment']",
+  "[class*='SafeHTMLBox']",
+  "[class*='BodyHTMLContainer']",
+  "[class*='LayoutHelpers-module__timelineElement']",
+];
+
+const LEGACY_COMMENT_MARKDOWN_SELECTORS = [
+  ".comment-body.markdown-body",
+  ".js-comment-body.markdown-body",
+  ".comment-body .markdown-body",
+  ".js-comment-body .markdown-body",
+  ".comment-body",
+  ".js-comment-body",
+  ".review-comment .markdown-body",
+  ".review-comment .comment-body",
+  ".js-resolvable-thread .markdown-body",
+  ".js-resolvable-thread .comment-body",
+  ".js-inline-comment .markdown-body",
+  ".js-inline-comment .comment-body",
+  ".js-comment-container .markdown-body",
+  ".js-comment-container .comment-body",
+  ".timeline-comment .markdown-body",
+  "[id^='issuecomment-'] .markdown-body",
+  "[id^='discussion_r'] .markdown-body",
+  "[id^='pullrequestreview-'] .markdown-body",
+];
+
+const REACT_COMMENT_MARKDOWN_SELECTORS = [
+  ".react-issue-comment [data-testid='markdown-body'] .markdown-body",
+  ".react-issue-comment [data-testid*='markdown-body' i] .markdown-body",
+  ".react-issue-comment [class*='IssueCommentBody'] .markdown-body",
+  "[data-wrapper-timeline-id] [data-testid='markdown-body'] .markdown-body",
+  "[data-wrapper-timeline-id] [data-testid*='markdown-body' i] .markdown-body",
+  "[data-wrapper-timeline-id] [class*='IssueCommentBody'] .markdown-body",
+  "[class*='LayoutHelpers-module__timelineElement'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='LayoutHelpers-module__timelineElement'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='IssueCommentViewer'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='IssueCommentViewer'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='IssueCommentViewer'] [class*='IssueCommentBody'] .markdown-body",
+];
+
+const REVIEW_THREAD_MARKDOWN_SELECTORS = [
+  "[class*='PullRequestReviewComment'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='PullRequestReviewComment'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='ReviewComment'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='ReviewComment'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='ReviewThread'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='ReviewThread'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='ReviewThread'] [class*='SafeHTMLBox'].markdown-body",
+  "[class*='ReviewThread'] [class*='BodyHTMLContainer'] .markdown-body",
+  "[class*='ReviewThreadComment'] .markdown-body",
+  "[class*='ReviewThreadComment'] [class*='SafeHTMLBox']",
+  "[class*='ReviewThreadComment'] [class*='BodyHTMLContainer'] .markdown-body",
+  "[class*='ReviewThreadComment-module__SafeHTMLBox'].markdown-body",
+  "[class*='ReviewThreadComment-module__BodyHTMLContainer'] .markdown-body",
+  "[class*='InlineComment'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='InlineComment'] [data-testid*='markdown-body' i] .markdown-body",
+];
+
+const GENERIC_MARKDOWN_SELECTORS = [
+  "[data-testid='markdown-body'] .markdown-body",
+  "[data-testid*='markdown-body' i] .markdown-body",
+  "[class*='IssueCommentBody'] .markdown-body",
+  "[data-testid='markdown-body']",
+  "[data-testid*='markdown-body' i]",
+  "[class*='IssueCommentBody']",
+  "[class*='RenderedMarkdown']",
+  "[class*='renderedMarkdown']",
+  "[class*='SafeHTMLBox'].markdown-body",
+  "[class*='BodyHTMLContainer'] .markdown-body",
+  "[data-testid='comment-body']",
+];
+
+const COMMENT_MARKDOWN_SELECTORS = [
+  ...LEGACY_COMMENT_MARKDOWN_SELECTORS,
+  ...REACT_COMMENT_MARKDOWN_SELECTORS,
+  ...REVIEW_THREAD_MARKDOWN_SELECTORS,
+  ...GENERIC_MARKDOWN_SELECTORS,
+];
 
 /** 선택된 라인 번호를 URL에서 파싱하는 정규식 (예: #L42 또는 #L10-L20) */
 const LINE_NUMBER_REGEX = /#L(\d+)(?:-L(\d+))?$/;
@@ -649,12 +780,27 @@ function createUnconfiguredButton(compact: boolean = false): HTMLAnchorElement {
 /** 번역기 API 인스턴스 캐시 (undefined=미확인, null=미지원) */
 let translatorApiCache: TranslatorFactory | null | undefined = undefined;
 
-type TranslationSegmentKind = "heading" | "paragraph" | "list-item" | "ordered-list-item" | "quote";
+type TranslationSegmentKind =
+  | "heading"
+  | "paragraph"
+  | "list-item"
+  | "ordered-list-item"
+  | "list-continuation"
+  | "quote";
 
 interface TranslationSegment {
   kind: TranslationSegmentKind;
   text: string;
   listNumber?: number;
+  listDepth?: number;
+}
+
+interface AppendTranslationSegmentOptions {
+  kind?: TranslationSegmentKind;
+  listNumber?: number;
+  listDepth?: number;
+  text?: string;
+  skipNestedLists?: boolean;
 }
 
 const TRANSLATION_BLOCK_TAGS = new Set([
@@ -698,23 +844,13 @@ const TRANSLATION_BLOCK_TAGS = new Set([
 /**
  * Chrome Translator API 인스턴스를 반환합니다.
  * 미지원 환경이면 null을 반환하며, 결과는 세션 동안 캐시됩니다.
+ * 언어 쌍별 availability는 createTranslatorForText에서 별도로 확인합니다.
  */
 async function getTranslatorApi(): Promise<TranslatorFactory | null> {
   if (translatorApiCache !== undefined) return translatorApiCache;
 
   const api = self.Translator ?? self.ai?.translator ?? null;
-  if (!api) {
-    translatorApiCache = null;
-    return null;
-  }
-
-  try {
-    // 일반적인 언어 쌍으로 API 지원 여부만 테스트 (en→es: 대부분 지원)
-    const avail = await api.availability({ sourceLanguage: "en", targetLanguage: "es" });
-    translatorApiCache = avail !== "no" && avail !== "unavailable" ? api : null;
-  } catch {
-    translatorApiCache = null;
-  }
+  translatorApiCache = api;
   return translatorApiCache;
 }
 
@@ -723,6 +859,8 @@ function normalizeLanguageCode(language: string | undefined): string | null {
   if (!language) return null;
 
   const normalized = language.toLowerCase().split("-")[0];
+  if (UNKNOWN_LANGUAGE_CODES.has(normalized)) return null;
+
   return normalized || null;
 }
 
@@ -745,7 +883,7 @@ async function getTranslateTargetLanguage(
 
   const result = await chrome.storage.sync.get(["targetLanguage"]);
   const storedLanguage = typeof result.targetLanguage === "string"
-    ? result.targetLanguage
+    ? parseTranslationTargetLanguage(result.targetLanguage)
     : "browser";
 
   if (storedLanguage === "browser") {
@@ -798,7 +936,12 @@ async function createTranslatorForText(
   const sourceLanguage = inferCommentLanguage(text, detectedLanguage);
   if (sourceLanguage === targetLanguage) throw new Error("already-target");
 
-  const avail = await api.availability({ sourceLanguage, targetLanguage });
+  let avail: Awaited<ReturnType<TranslatorFactory["availability"]>>;
+  try {
+    avail = await api.availability({ sourceLanguage, targetLanguage });
+  } catch {
+    throw new Error("unavailable");
+  }
   if (avail === "no" || avail === "unavailable") throw new Error("unavailable");
 
   const translator = await api.create({ sourceLanguage, targetLanguage });
@@ -847,16 +990,27 @@ function normalizeTranslationText(text: string): string {
     .trim();
 }
 
-function serializeInlineText(node: Node): string {
+function isListElement(element: HTMLElement): element is HTMLUListElement | HTMLOListElement {
+  return element.tagName === "UL" || element.tagName === "OL";
+}
+
+function serializeInlineText(
+  node: Node,
+  options: { skipNestedLists?: boolean } = {}
+): string {
   if (node.nodeType === Node.TEXT_NODE) {
     return node.textContent ?? "";
   }
 
   if (!(node instanceof HTMLElement)) {
-    return Array.from(node.childNodes).map(serializeInlineText).join("");
+    return Array.from(node.childNodes).map((child) => serializeInlineText(child, options)).join("");
   }
 
   if (shouldSkipTranslationNode(node)) {
+    return "";
+  }
+
+  if (options.skipNestedLists && isListElement(node)) {
     return "";
   }
 
@@ -869,7 +1023,7 @@ function serializeInlineText(node: Node): string {
     return inlineText ? `\`${inlineText}\`` : "";
   }
 
-  return Array.from(node.childNodes).map(serializeInlineText).join("");
+  return Array.from(node.childNodes).map((child) => serializeInlineText(child, options)).join("");
 }
 
 function hasReviewPriorityPrefix(text: string): boolean {
@@ -911,16 +1065,18 @@ function getSegmentKind(element: HTMLElement, text: string, isFirstSegment: bool
 function appendTranslationSegment(
   segments: TranslationSegment[],
   element: HTMLElement,
-  kind?: TranslationSegmentKind,
-  listNumber?: number
+  options: AppendTranslationSegmentOptions = {}
 ): void {
-  const text = normalizeTranslationText(serializeInlineText(element));
+  const text = normalizeTranslationText(
+    options.text ?? serializeInlineText(element, { skipNestedLists: options.skipNestedLists })
+  );
   if (!text) return;
 
   segments.push({
-    kind: kind ?? getSegmentKind(element, text, segments.length === 0),
+    kind: options.kind ?? getSegmentKind(element, text, segments.length === 0),
     text,
-    listNumber,
+    listNumber: options.listNumber,
+    listDepth: options.listDepth,
   });
 }
 
@@ -943,9 +1099,90 @@ function getOrderedListItemNumber(item: HTMLLIElement, fallback: number): number
   return Number.isNaN(value) ? fallback : value;
 }
 
+function getListContinuationKind(element: HTMLElement): TranslationSegmentKind {
+  return element.tagName === "BLOCKQUOTE" ? "quote" : "list-continuation";
+}
+
+function appendListItemContentSegments(
+  segments: TranslationSegment[],
+  item: HTMLLIElement,
+  markerKind: TranslationSegmentKind,
+  listNumber: number | undefined,
+  listDepth: number
+): void {
+  let hasEmittedItemSegment = false;
+  const inlineParts: string[] = [];
+
+  const flushInlineParts = (): void => {
+    const text = normalizeTranslationText(inlineParts.join(""));
+    inlineParts.length = 0;
+    if (!text) return;
+
+    appendTranslationSegment(segments, item, {
+      kind: hasEmittedItemSegment ? "list-continuation" : markerKind,
+      listNumber: hasEmittedItemSegment ? undefined : listNumber,
+      listDepth,
+      text,
+    });
+    hasEmittedItemSegment = true;
+  };
+
+  Array.from(item.childNodes).forEach((child) => {
+    if (child instanceof HTMLElement && shouldSkipTranslationNode(child)) {
+      return;
+    }
+
+    if (child instanceof HTMLElement && isListElement(child)) {
+      flushInlineParts();
+      appendListTranslationSegments(segments, child, listDepth + 1);
+      return;
+    }
+
+    if (child instanceof HTMLElement && TRANSLATION_BLOCK_TAGS.has(child.tagName)) {
+      flushInlineParts();
+      const text = normalizeTranslationText(serializeInlineText(child, { skipNestedLists: true }));
+      if (text) {
+        appendTranslationSegment(segments, child, {
+          kind: hasEmittedItemSegment ? getListContinuationKind(child) : markerKind,
+          listNumber: hasEmittedItemSegment ? undefined : listNumber,
+          listDepth,
+          text,
+        });
+        hasEmittedItemSegment = true;
+      }
+      appendNestedListTranslationSegments(segments, child, listDepth);
+      return;
+    }
+
+    inlineParts.push(serializeInlineText(child, { skipNestedLists: true }));
+  });
+
+  flushInlineParts();
+}
+
+function appendNestedListTranslationSegments(
+  segments: TranslationSegment[],
+  element: HTMLElement,
+  listDepth: number
+): void {
+  Array.from(element.children).forEach((child) => {
+    if (!(child instanceof HTMLElement)) {
+      return;
+    }
+
+    if (isListElement(child)) {
+      appendListTranslationSegments(segments, child, listDepth + 1);
+      return;
+    }
+
+    appendNestedListTranslationSegments(segments, child, listDepth);
+  });
+}
+
 function appendListTranslationSegments(
   segments: TranslationSegment[],
-  list: HTMLUListElement | HTMLOListElement
+  list: HTMLUListElement | HTMLOListElement,
+  listDepth = 0
 ): void {
   const isOrdered = list instanceof HTMLOListElement;
   let listNumber = isOrdered ? getOrderedListStart(list) : 1;
@@ -957,11 +1194,12 @@ function appendListTranslationSegments(
     }
 
     const itemNumber = isOrdered ? getOrderedListItemNumber(child, listNumber) : undefined;
-    appendTranslationSegment(
+    appendListItemContentSegments(
       segments,
       child,
       isOrdered ? "ordered-list-item" : "list-item",
-      itemNumber
+      itemNumber,
+      listDepth
     );
 
     if (isOrdered && itemNumber !== undefined) {
@@ -983,13 +1221,18 @@ function collectTranslationSegments(node: Node, segments: TranslationSegment[]):
     return;
   }
 
-  if (/^H[1-6]$/.test(node.tagName) || ["P", "BLOCKQUOTE", "LI"].includes(node.tagName)) {
+  if (node instanceof HTMLLIElement) {
+    appendListItemContentSegments(segments, node, "list-item", undefined, 0);
+    return;
+  }
+
+  if (/^H[1-6]$/.test(node.tagName) || ["P", "BLOCKQUOTE"].includes(node.tagName)) {
     appendTranslationSegment(segments, node);
     return;
   }
 
-  if (node.tagName === "UL" || node.tagName === "OL") {
-    appendListTranslationSegments(segments, node as HTMLUListElement | HTMLOListElement);
+  if (isListElement(node)) {
+    appendListTranslationSegments(segments, node);
     return;
   }
 
@@ -1023,60 +1266,20 @@ function renderTranslatedSegments(
     if (segment.kind === "ordered-list-item" && segment.listNumber !== undefined) {
       segmentElement.dataset.gdtListNumber = String(segment.listNumber);
     }
+    if (segment.listDepth) {
+      segmentElement.style.setProperty("--gdt-list-indent", `${Math.min(segment.listDepth, 6) * 16}px`);
+    }
     segmentElement.textContent = segment.text;
     resultContainer.appendChild(segmentElement);
   });
 }
 
 function hasNestedCommentBody(element: HTMLElement): boolean {
-  return Boolean(
-    element.querySelector([
-      ".comment-body",
-      ".js-comment-body",
-      ".markdown-body",
-      "[class*='IssueCommentBody']",
-      "[class*='MarkdownBody']",
-      "[class*='markdownBody']",
-      "[class*='RenderedMarkdown']",
-      "[class*='renderedMarkdown']",
-      "[class*='SafeHTMLBox']",
-      "[class*='BodyHTMLContainer']",
-      "[data-testid='comment-body']",
-      "[data-testid*='comment-body' i]",
-      "[data-testid='markdown-body']",
-      "[data-testid*='markdown-body' i]",
-    ].join(", "))
-  );
+  return Boolean(element.querySelector(COMMENT_BODY_SELECTORS.join(", ")));
 }
 
 function isInsideCommentContext(element: HTMLElement): boolean {
-  return Boolean(
-    element.closest([
-      ".comment-body",
-      ".js-comment-body",
-      ".review-comment",
-      ".js-resolvable-thread",
-      ".js-inline-comment",
-      ".js-comment-container",
-      ".timeline-comment",
-      ".js-timeline-item",
-      ".react-issue-comment",
-      "[data-wrapper-timeline-id]",
-      "[id^='issuecomment-']",
-      "[id^='discussion_r']",
-      "[id^='pullrequestreview-']",
-      "[data-testid='comment-header']",
-      "[class*='IssueCommentViewer']",
-      "[class*='PullRequestReviewComment']",
-      "[class*='ReviewComment']",
-      "[class*='ReviewThread']",
-      "[class*='ReviewThreadComment']",
-      "[class*='InlineComment']",
-      "[class*='SafeHTMLBox']",
-      "[class*='BodyHTMLContainer']",
-      "[class*='LayoutHelpers-module__timelineElement']",
-    ].join(", "))
-  );
+  return Boolean(element.closest(COMMENT_CONTEXT_SELECTORS.join(", ")));
 }
 
 function hasTranslateControls(element: HTMLElement): boolean {
@@ -1108,7 +1311,7 @@ function setTranslateButtonLabel(btn: HTMLButtonElement, messageKey: string): vo
 }
 
 function parseTranslationTargetLanguage(value: string): TranslationTargetLanguage {
-  if (value === "ko" || value === "en") {
+  if (isTranslationTargetLanguage(value)) {
     return value;
   }
 
@@ -1277,80 +1480,10 @@ function handleTranslateClick(
  *   - 신버전: <div class="comment-body markdown-body js-comment-body">...</div>  (동일 element)
  */
 function injectTranslateButtons(): void {
-  const excludeSelector = [
-    ".file-header", ".js-file-header", "[class*='diff-file-header']",
-    "nav", "#repository-container-header",
-    "textarea", "[contenteditable='true']",
-  ].join(", ");
+  const excludeSelector = TRANSLATE_EXCLUDE_SELECTORS.join(", ");
 
   // markdown-body를 직접 탐색: 코멘트 컨테이너 안에 있는 것만 대상
-  const candidates = document.querySelectorAll<HTMLElement>(
-    [
-      // 신버전: comment-body 자체가 markdown-body인 경우
-      ".comment-body.markdown-body",
-      ".js-comment-body.markdown-body",
-      // 구버전: comment-body 하위의 markdown-body
-      ".comment-body .markdown-body",
-      ".js-comment-body .markdown-body",
-      // Files changed 탭 변형: markdown-body 클래스가 없는 comment body
-      ".comment-body",
-      ".js-comment-body",
-      // GitHub Preview UX / React comments
-      ".react-issue-comment [data-testid='markdown-body'] .markdown-body",
-      ".react-issue-comment [data-testid*='markdown-body' i] .markdown-body",
-      ".react-issue-comment [class*='IssueCommentBody'] .markdown-body",
-      "[data-wrapper-timeline-id] [data-testid='markdown-body'] .markdown-body",
-      "[data-wrapper-timeline-id] [data-testid*='markdown-body' i] .markdown-body",
-      "[data-wrapper-timeline-id] [class*='IssueCommentBody'] .markdown-body",
-      "[class*='LayoutHelpers-module__timelineElement'] [data-testid='markdown-body'] .markdown-body",
-      "[class*='LayoutHelpers-module__timelineElement'] [data-testid*='markdown-body' i] .markdown-body",
-      "[class*='IssueCommentViewer'] [data-testid='markdown-body'] .markdown-body",
-      "[class*='IssueCommentViewer'] [data-testid*='markdown-body' i] .markdown-body",
-      "[class*='IssueCommentViewer'] [class*='IssueCommentBody'] .markdown-body",
-      "[class*='PullRequestReviewComment'] [data-testid='markdown-body'] .markdown-body",
-      "[class*='PullRequestReviewComment'] [data-testid*='markdown-body' i] .markdown-body",
-      "[class*='ReviewComment'] [data-testid='markdown-body'] .markdown-body",
-      "[class*='ReviewComment'] [data-testid*='markdown-body' i] .markdown-body",
-      "[class*='ReviewThread'] [data-testid='markdown-body'] .markdown-body",
-      "[class*='ReviewThread'] [data-testid*='markdown-body' i] .markdown-body",
-      "[class*='ReviewThread'] [class*='SafeHTMLBox'].markdown-body",
-      "[class*='ReviewThread'] [class*='BodyHTMLContainer'] .markdown-body",
-      "[class*='ReviewThreadComment'] .markdown-body",
-      "[class*='ReviewThreadComment'] [class*='SafeHTMLBox']",
-      "[class*='ReviewThreadComment'] [class*='BodyHTMLContainer'] .markdown-body",
-      "[class*='ReviewThreadComment-module__SafeHTMLBox'].markdown-body",
-      "[class*='ReviewThreadComment-module__BodyHTMLContainer'] .markdown-body",
-      "[class*='InlineComment'] [data-testid='markdown-body'] .markdown-body",
-      "[class*='InlineComment'] [data-testid*='markdown-body' i] .markdown-body",
-      "[data-testid='markdown-body'] .markdown-body",
-      "[data-testid*='markdown-body' i] .markdown-body",
-      "[class*='IssueCommentBody'] .markdown-body",
-      "[data-testid='markdown-body']",
-      "[data-testid*='markdown-body' i]",
-      "[class*='IssueCommentBody']",
-      "[class*='RenderedMarkdown']",
-      "[class*='renderedMarkdown']",
-      "[class*='SafeHTMLBox'].markdown-body",
-      "[class*='BodyHTMLContainer'] .markdown-body",
-      // PR review thread 코멘트
-      ".review-comment .markdown-body",
-      ".review-comment .comment-body",
-      ".js-resolvable-thread .markdown-body",
-      ".js-resolvable-thread .comment-body",
-      ".js-inline-comment .markdown-body",
-      ".js-inline-comment .comment-body",
-      ".js-comment-container .markdown-body",
-      ".js-comment-container .comment-body",
-      // timeline 코멘트 (이슈/PR 대화)
-      ".timeline-comment .markdown-body",
-      // GitHub가 id 기반으로 감싸는 이슈/PR/리뷰 코멘트
-      "[id^='issuecomment-'] .markdown-body",
-      "[id^='discussion_r'] .markdown-body",
-      "[id^='pullrequestreview-'] .markdown-body",
-      // 테스트 id 기반 신형 DOM
-      "[data-testid='comment-body']",
-    ].join(", ")
-  );
+  const candidates = document.querySelectorAll<HTMLElement>(COMMENT_MARKDOWN_SELECTORS.join(", "));
 
   candidates.forEach((markdownBody) => {
     if (markdownBody.dataset[TRANSLATE_INJECTED_ATTR]) {
