@@ -55,6 +55,35 @@
         </div>
       </section>
 
+      <!-- 번역 대상 언어 섹션 -->
+      <section class="section">
+        <label class="section-label" for="target-language-select" data-i18n="labelTranslationTarget">
+          <svg class="label-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2.5 4.5H9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <path d="M5.5 2.5V4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <path d="M8.5 4.5C8 7.25 6.25 9.25 3.5 10.5" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M3.5 7C4.45 8.35 5.65 9.35 7.25 10" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M10 13.5L12 8.5L14 13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+              stroke-linejoin="round" />
+            <path d="M10.75 12H13.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+        </label>
+        <div class="select-wrapper">
+          <select id="target-language-select" class="select">
+            <option value="browser" data-i18n="optionBrowserLanguage">Browser language</option>
+            <option value="ko" data-i18n="optionKorean">Korean</option>
+            <option value="en" data-i18n="optionEnglish">English</option>
+          </select>
+          <svg class="select-arrow" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+              stroke-linejoin="round" />
+          </svg>
+        </div>
+        <p class="hint" data-i18n="hintTranslationTarget"></p>
+      </section>
+
       <!-- 기본 경로 섹션 -->
       <section class="section">
         <label class="section-label" for="base-path-input" data-i18n="labelBasePath">

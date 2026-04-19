@@ -1,4 +1,46 @@
-import { SupportedIDE, UserSettings, IDE_URI_SCHEMES, IDE_DISPLAY_NAMES } from "../types";
+import {
+  SupportedIDE,
+  TranslationTargetLanguage,
+  UserSettings,
+  IDE_URI_SCHEMES,
+  IDE_DISPLAY_NAMES,
+  isTranslationTargetLanguage,
+} from "../types";
+
+// ============================================================
+// Chrome Built-in Translator API 타입 선언 (Chrome 138+)
+// ============================================================
+
+interface LanguageDetectionResult {
+  detectedLanguage: string;
+  confidence: number;
+}
+interface LanguageDetector {
+  detect(text: string): Promise<LanguageDetectionResult[]>;
+}
+interface Translator {
+  translate(input: string): Promise<string>;
+}
+interface TranslatorFactory {
+  availability(options: { sourceLanguage: string; targetLanguage: string }): Promise<"available" | "downloadable" | "downloading" | "unavailable" | "readily" | "after-download" | "no">;
+  create(options: {
+    sourceLanguage: string;
+    targetLanguage: string;
+    monitor?: (monitor: EventTarget) => void;
+  }): Promise<Translator>;
+}
+interface LanguageDetectorFactory {
+  create(): Promise<LanguageDetector>;
+}
+interface AiAPIs {
+  translator?: TranslatorFactory;
+  languageDetector?: LanguageDetectorFactory;
+}
+declare const self: typeof globalThis & {
+  ai?: AiAPIs;
+  Translator?: TranslatorFactory;
+  LanguageDetector?: LanguageDetectorFactory;
+};
 
 // ============================================================
 // 상수 및 타입
@@ -12,6 +54,157 @@ const REPO_INJECTED_MARKER = "gdt-repo-btn";
 
 /** 파일 트리 행(row) 버튼이 이미 삽입됐음을 표시하는 CSS 클래스 */
 const TREE_ROW_INJECTED_MARKER = "gdt-tree-row-btn";
+
+/** 번역 버튼이 이미 삽입됐음을 표시하는 dataset 키 (camelCase) */
+const TRANSLATE_INJECTED_ATTR = "gdtTranslateInjected";
+
+/** 진행 중인 번역 요청을 식별하는 dataset 키 (camelCase) */
+const TRANSLATE_REQUEST_ID_ATTR = "gdtTranslateRequestId";
+
+/** 번역 UI 래퍼 클래스 */
+const TRANSLATE_CONTROLS_CLASS = "gdt-translate-controls";
+
+/** 번역 액션 행 클래스 */
+const TRANSLATE_ACTIONS_CLASS = "gdt-translate-actions";
+
+/** 번역 언어 드롭다운 래퍼 클래스 */
+const TRANSLATE_LANGUAGE_WRAPPER_CLASS = "gdt-translate-language-wrapper";
+
+/** 언어 감지가 실패한 비한글 댓글에 사용할 중립 기본 소스 언어 */
+const TRANSLATE_DEFAULT_SOURCE_LANGUAGE = "en";
+
+/** LanguageDetector가 언어를 확정하지 못했을 때 반환할 수 있는 코드 */
+const UNKNOWN_LANGUAGE_CODES = new Set(["und", "unknown"]);
+
+/** GitHub review comments commonly prefix summary titles with P0-P3 priority labels. */
+const REVIEW_PRIORITY_PREFIX_REGEX = /^P[0-3]\s+/i;
+
+const TRANSLATE_EXCLUDE_SELECTORS = [
+  ".file-header",
+  ".js-file-header",
+  "[class*='diff-file-header']",
+  "nav",
+  "#repository-container-header",
+  "textarea",
+  "[contenteditable='true']",
+];
+
+const COMMENT_BODY_SELECTORS = [
+  ".comment-body",
+  ".js-comment-body",
+  ".markdown-body",
+  "[class*='IssueCommentBody']",
+  "[class*='MarkdownBody']",
+  "[class*='markdownBody']",
+  "[class*='RenderedMarkdown']",
+  "[class*='renderedMarkdown']",
+  "[class*='SafeHTMLBox']",
+  "[class*='BodyHTMLContainer']",
+  "[data-testid='comment-body']",
+  "[data-testid*='comment-body' i]",
+  "[data-testid='markdown-body']",
+  "[data-testid*='markdown-body' i]",
+];
+
+const COMMENT_CONTEXT_SELECTORS = [
+  ".comment-body",
+  ".js-comment-body",
+  ".review-comment",
+  ".js-resolvable-thread",
+  ".js-inline-comment",
+  ".js-comment-container",
+  ".timeline-comment",
+  ".js-timeline-item",
+  ".react-issue-comment",
+  "[data-wrapper-timeline-id]",
+  "[id^='issuecomment-']",
+  "[id^='discussion_r']",
+  "[id^='pullrequestreview-']",
+  "[data-testid='comment-header']",
+  "[class*='IssueCommentViewer']",
+  "[class*='PullRequestReviewComment']",
+  "[class*='ReviewComment']",
+  "[class*='ReviewThread']",
+  "[class*='ReviewThreadComment']",
+  "[class*='InlineComment']",
+  "[class*='SafeHTMLBox']",
+  "[class*='BodyHTMLContainer']",
+  "[class*='LayoutHelpers-module__timelineElement']",
+];
+
+const LEGACY_COMMENT_MARKDOWN_SELECTORS = [
+  ".comment-body.markdown-body",
+  ".js-comment-body.markdown-body",
+  ".comment-body .markdown-body",
+  ".js-comment-body .markdown-body",
+  ".comment-body",
+  ".js-comment-body",
+  ".review-comment .markdown-body",
+  ".review-comment .comment-body",
+  ".js-resolvable-thread .markdown-body",
+  ".js-resolvable-thread .comment-body",
+  ".js-inline-comment .markdown-body",
+  ".js-inline-comment .comment-body",
+  ".js-comment-container .markdown-body",
+  ".js-comment-container .comment-body",
+  ".timeline-comment .markdown-body",
+  "[id^='issuecomment-'] .markdown-body",
+  "[id^='discussion_r'] .markdown-body",
+  "[id^='pullrequestreview-'] .markdown-body",
+];
+
+const REACT_COMMENT_MARKDOWN_SELECTORS = [
+  ".react-issue-comment [data-testid='markdown-body'] .markdown-body",
+  ".react-issue-comment [data-testid*='markdown-body' i] .markdown-body",
+  ".react-issue-comment [class*='IssueCommentBody'] .markdown-body",
+  "[data-wrapper-timeline-id] [data-testid='markdown-body'] .markdown-body",
+  "[data-wrapper-timeline-id] [data-testid*='markdown-body' i] .markdown-body",
+  "[data-wrapper-timeline-id] [class*='IssueCommentBody'] .markdown-body",
+  "[class*='LayoutHelpers-module__timelineElement'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='LayoutHelpers-module__timelineElement'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='IssueCommentViewer'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='IssueCommentViewer'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='IssueCommentViewer'] [class*='IssueCommentBody'] .markdown-body",
+];
+
+const REVIEW_THREAD_MARKDOWN_SELECTORS = [
+  "[class*='PullRequestReviewComment'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='PullRequestReviewComment'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='ReviewComment'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='ReviewComment'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='ReviewThread'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='ReviewThread'] [data-testid*='markdown-body' i] .markdown-body",
+  "[class*='ReviewThread'] [class*='SafeHTMLBox'].markdown-body",
+  "[class*='ReviewThread'] [class*='BodyHTMLContainer'] .markdown-body",
+  "[class*='ReviewThreadComment'] .markdown-body",
+  "[class*='ReviewThreadComment'] [class*='SafeHTMLBox']",
+  "[class*='ReviewThreadComment'] [class*='BodyHTMLContainer'] .markdown-body",
+  "[class*='ReviewThreadComment-module__SafeHTMLBox'].markdown-body",
+  "[class*='ReviewThreadComment-module__BodyHTMLContainer'] .markdown-body",
+  "[class*='InlineComment'] [data-testid='markdown-body'] .markdown-body",
+  "[class*='InlineComment'] [data-testid*='markdown-body' i] .markdown-body",
+];
+
+const GENERIC_MARKDOWN_SELECTORS = [
+  "[data-testid='markdown-body'] .markdown-body",
+  "[data-testid*='markdown-body' i] .markdown-body",
+  "[class*='IssueCommentBody'] .markdown-body",
+  "[data-testid='markdown-body']",
+  "[data-testid*='markdown-body' i]",
+  "[class*='IssueCommentBody']",
+  "[class*='RenderedMarkdown']",
+  "[class*='renderedMarkdown']",
+  "[class*='SafeHTMLBox'].markdown-body",
+  "[class*='BodyHTMLContainer'] .markdown-body",
+  "[data-testid='comment-body']",
+];
+
+const COMMENT_MARKDOWN_SELECTORS = [
+  ...LEGACY_COMMENT_MARKDOWN_SELECTORS,
+  ...REACT_COMMENT_MARKDOWN_SELECTORS,
+  ...REVIEW_THREAD_MARKDOWN_SELECTORS,
+  ...GENERIC_MARKDOWN_SELECTORS,
+];
 
 /** 선택된 라인 번호를 URL에서 파싱하는 정규식 (예: #L42 또는 #L10-L20) */
 const LINE_NUMBER_REGEX = /#L(\d+)(?:-L(\d+))?$/;
@@ -435,7 +628,8 @@ function findReviewLineNumber(link: HTMLElement, maxAncestorDepth: number = 12):
       // 전략 2: data-line-number 속성
       const lineElements = sibling.querySelectorAll<HTMLElement>("[data-line-number]");
       let firstContextLine = 0;
-      for (const lineEl of lineElements) {
+      for (let j = 0; j < lineElements.length; j++) {
+        const lineEl = lineElements[j];
         const n = parseInt(lineEl.dataset.lineNumber ?? "", 10);
         if (isNaN(n) || n <= 0) continue;
 
@@ -580,6 +774,773 @@ function createUnconfiguredButton(compact: boolean = false): HTMLAnchorElement {
 }
 
 // ============================================================
+// 번역 기능 (Chrome Translator API)
+// ============================================================
+
+/** 번역기 API 인스턴스 캐시 (undefined=미확인, null=미지원) */
+let translatorApiCache: TranslatorFactory | null | undefined = undefined;
+
+type TranslationSegmentKind =
+  | "heading"
+  | "paragraph"
+  | "list-item"
+  | "ordered-list-item"
+  | "list-continuation"
+  | "quote";
+
+interface TranslationSegment {
+  kind: TranslationSegmentKind;
+  text: string;
+  listNumber?: number;
+  listDepth?: number;
+}
+
+interface AppendTranslationSegmentOptions {
+  kind?: TranslationSegmentKind;
+  listNumber?: number;
+  listDepth?: number;
+  text?: string;
+  skipNestedLists?: boolean;
+}
+
+const TRANSLATION_BLOCK_TAGS = new Set([
+  "ADDRESS",
+  "ARTICLE",
+  "ASIDE",
+  "BLOCKQUOTE",
+  "DD",
+  "DETAILS",
+  "DIV",
+  "DL",
+  "DT",
+  "FIGCAPTION",
+  "FIGURE",
+  "FOOTER",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "HEADER",
+  "HR",
+  "LI",
+  "MAIN",
+  "NAV",
+  "OL",
+  "P",
+  "PRE",
+  "SECTION",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+  "UL",
+]);
+
+/**
+ * Chrome Translator API 인스턴스를 반환합니다.
+ * 미지원 환경이면 null을 반환하며, 결과는 세션 동안 캐시됩니다.
+ * 언어 쌍별 availability는 createTranslatorForText에서 별도로 확인합니다.
+ */
+async function getTranslatorApi(): Promise<TranslatorFactory | null> {
+  if (translatorApiCache !== undefined) return translatorApiCache;
+
+  const api = self.Translator ?? self.ai?.translator ?? null;
+  translatorApiCache = api;
+  return translatorApiCache;
+}
+
+/** Translator API가 기대하는 짧은 BCP-47 언어 코드로 정규화합니다. */
+function normalizeLanguageCode(language: string | undefined): string | null {
+  if (!language) return null;
+
+  const normalized = language.toLowerCase().split("-")[0];
+  return normalized || null;
+}
+
+function normalizeDetectedLanguageCode(language: string | undefined): string | null {
+  const normalized = normalizeLanguageCode(language);
+  if (!normalized || UNKNOWN_LANGUAGE_CODES.has(normalized)) return null;
+
+  return normalized;
+}
+
+/** 브라우저 UI 언어에서 BCP-47 기본 태그를 추출합니다. 예: "ko-KR" -> "ko" */
+function getBrowserTargetLanguage(): string {
+  return normalizeLanguageCode(navigator.language) ?? "en";
+}
+
+/** 사용자가 popup이나 댓글 드롭다운에서 고른 댓글 번역 대상 언어를 반환합니다. */
+async function getTranslateTargetLanguage(
+  targetLanguageOverride?: TranslationTargetLanguage
+): Promise<string> {
+  if (targetLanguageOverride && targetLanguageOverride !== "browser") {
+    return normalizeLanguageCode(targetLanguageOverride) ?? getBrowserTargetLanguage();
+  }
+
+  if (targetLanguageOverride === "browser") {
+    return getBrowserTargetLanguage();
+  }
+
+  const result = await chrome.storage.sync.get(["targetLanguage"]);
+  const storedLanguage = typeof result.targetLanguage === "string"
+    ? parseTranslationTargetLanguage(result.targetLanguage)
+    : "browser";
+
+  if (storedLanguage === "browser") {
+    return getBrowserTargetLanguage();
+  }
+
+  return normalizeLanguageCode(storedLanguage) ?? getBrowserTargetLanguage();
+}
+
+/**
+ * 짧은 댓글에서 Chrome LanguageDetector가 오판하는 경우를 줄이기 위한 가벼운 보정입니다.
+ * 한글은 문자 종류만으로 안정적으로 구분하고, 그 외 언어는 detector 결과를 우선합니다.
+ */
+function inferCommentLanguage(
+  text: string,
+  detectedLanguage: string | undefined
+): string {
+  const detected = normalizeDetectedLanguageCode(detectedLanguage);
+  const hangulCount = (text.match(/[\uac00-\ud7af]/g) ?? []).length;
+
+  if (hangulCount >= 2) return "ko";
+  return detected ?? TRANSLATE_DEFAULT_SOURCE_LANGUAGE;
+}
+
+/**
+ * 텍스트를 감지된 소스 언어에서 사용자 설정 대상 언어로 번역할 Translator를 만듭니다.
+ * @throws 'already-target' — 소스 언어가 이미 대상 언어인 경우
+ * @throws 'unavailable' — API 미지원 또는 해당 언어 쌍 번역 불가
+ */
+async function createTranslatorForText(
+  text: string,
+  targetLanguageOverride?: TranslationTargetLanguage
+): Promise<Translator> {
+  const api = await getTranslatorApi();
+  if (!api) throw new Error("unavailable");
+
+  const targetLanguage = await getTranslateTargetLanguage(targetLanguageOverride);
+  let detectedLanguage: string | undefined;
+  try {
+    const detectorFactory = self.LanguageDetector ?? self.ai?.languageDetector;
+    const detector = await detectorFactory?.create();
+    if (detector) {
+      const [result] = await detector.detect(text.slice(0, 500));
+      detectedLanguage = result?.detectedLanguage;
+    }
+  } catch { /* 감지 실패 시 'en' fallback */ }
+
+  const sourceLanguage = inferCommentLanguage(text, detectedLanguage);
+  if (sourceLanguage === targetLanguage) throw new Error("already-target");
+
+  let avail: Awaited<ReturnType<TranslatorFactory["availability"]>>;
+  try {
+    avail = await api.availability({ sourceLanguage, targetLanguage });
+  } catch {
+    throw new Error("unavailable");
+  }
+  if (avail === "no" || avail === "unavailable") throw new Error("unavailable");
+
+  const translator = await api.create({ sourceLanguage, targetLanguage });
+  return translator;
+}
+
+/** 댓글 세그먼트를 같은 번역기로 순서대로 번역합니다. */
+async function translateSegments(
+  segments: TranslationSegment[],
+  targetLanguageOverride?: TranslationTargetLanguage
+): Promise<TranslationSegment[]> {
+  const sourceText = segments.map((segment) => segment.text).join("\n\n");
+  const translator = await createTranslatorForText(sourceText, targetLanguageOverride);
+  const translatedSegments: TranslationSegment[] = [];
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const translatedText = await translator.translate(segment.text);
+    translatedSegments.push({
+      ...segment,
+      text: translatedText.trim(),
+    });
+  }
+
+  return translatedSegments;
+}
+
+/**
+ * 댓글 본문에서 번역 UI와 코드 블록을 제외한 사람이 읽는 텍스트만 추출합니다.
+ * 문장 안의 inline code는 리뷰 문맥에 중요하므로 백틱으로 보존합니다.
+ */
+function shouldSkipTranslationNode(element: HTMLElement): boolean {
+  return (
+    element.classList.contains(TRANSLATE_CONTROLS_CLASS) ||
+    element.classList.contains("gdt-translate-result") ||
+    ["SCRIPT", "STYLE", "SVG", "PRE"].includes(element.tagName)
+  );
+}
+
+function normalizeTranslationText(text: string): string {
+  return text
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function isListElement(element: HTMLElement): element is HTMLUListElement | HTMLOListElement {
+  return element.tagName === "UL" || element.tagName === "OL";
+}
+
+function serializeInlineText(
+  node: Node,
+  options: { skipNestedLists?: boolean } = {}
+): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent ?? "";
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return Array.from(node.childNodes).map((child) => serializeInlineText(child, options)).join("");
+  }
+
+  if (shouldSkipTranslationNode(node)) {
+    return "";
+  }
+
+  if (options.skipNestedLists && isListElement(node)) {
+    return "";
+  }
+
+  if (node.tagName === "BR") {
+    return "\n";
+  }
+
+  if (["CODE", "KBD", "SAMP"].includes(node.tagName)) {
+    const inlineText = normalizeTranslationText(node.textContent ?? "");
+    return inlineText ? `\`${inlineText}\`` : "";
+  }
+
+  return Array.from(node.childNodes).map((child) => serializeInlineText(child, options)).join("");
+}
+
+function hasReviewPriorityPrefix(text: string): boolean {
+  return REVIEW_PRIORITY_PREFIX_REGEX.test(text);
+}
+
+function isTitleLikeParagraph(element: HTMLElement, text: string, isFirstSegment: boolean): boolean {
+  if (!isFirstSegment || element.tagName !== "P" || text.length > 180) {
+    return false;
+  }
+
+  const firstElementChild = Array.from(element.children).find(
+    (child) => child instanceof HTMLElement && !shouldSkipTranslationNode(child)
+  );
+
+  return (
+    hasReviewPriorityPrefix(text) ||
+    firstElementChild?.tagName === "STRONG" ||
+    firstElementChild?.tagName === "B"
+  );
+}
+
+function getSegmentKind(element: HTMLElement, text: string, isFirstSegment: boolean): TranslationSegmentKind {
+  if (/^H[1-6]$/.test(element.tagName) || isTitleLikeParagraph(element, text, isFirstSegment)) {
+    return "heading";
+  }
+
+  if (element.tagName === "LI") {
+    return "list-item";
+  }
+
+  if (element.tagName === "BLOCKQUOTE") {
+    return "quote";
+  }
+
+  return "paragraph";
+}
+
+function appendTranslationSegment(
+  segments: TranslationSegment[],
+  element: HTMLElement,
+  options: AppendTranslationSegmentOptions = {}
+): void {
+  const text = normalizeTranslationText(
+    options.text ?? serializeInlineText(element, { skipNestedLists: options.skipNestedLists })
+  );
+  if (!text) return;
+
+  segments.push({
+    kind: options.kind ?? getSegmentKind(element, text, segments.length === 0),
+    text,
+    listNumber: options.listNumber,
+    listDepth: options.listDepth,
+  });
+}
+
+function getOrderedListStart(list: HTMLOListElement): number {
+  if (list.reversed && !list.hasAttribute("start")) {
+    return Array.from(list.children).filter((child) =>
+      child instanceof HTMLElement && child.tagName === "LI"
+    ).length;
+  }
+
+  return list.start || 1;
+}
+
+function getOrderedListItemNumber(item: HTMLLIElement, fallback: number): number {
+  if (!item.hasAttribute("value")) {
+    return fallback;
+  }
+
+  const value = Number.parseInt(item.getAttribute("value") ?? "", 10);
+  return Number.isNaN(value) ? fallback : value;
+}
+
+function getListContinuationKind(element: HTMLElement): TranslationSegmentKind {
+  return element.tagName === "BLOCKQUOTE" ? "quote" : "list-continuation";
+}
+
+function appendListItemContentSegments(
+  segments: TranslationSegment[],
+  item: HTMLLIElement,
+  markerKind: TranslationSegmentKind,
+  listNumber: number | undefined,
+  listDepth: number
+): void {
+  let hasEmittedItemSegment = false;
+  const inlineParts: string[] = [];
+
+  const flushInlineParts = (): void => {
+    const text = normalizeTranslationText(inlineParts.join(""));
+    inlineParts.length = 0;
+    if (!text) return;
+
+    appendTranslationSegment(segments, item, {
+      kind: hasEmittedItemSegment ? "list-continuation" : markerKind,
+      listNumber: hasEmittedItemSegment ? undefined : listNumber,
+      listDepth,
+      text,
+    });
+    hasEmittedItemSegment = true;
+  };
+
+  Array.from(item.childNodes).forEach((child) => {
+    if (child instanceof HTMLElement && shouldSkipTranslationNode(child)) {
+      return;
+    }
+
+    if (child instanceof HTMLElement && isListElement(child)) {
+      flushInlineParts();
+      appendListTranslationSegments(segments, child, listDepth + 1);
+      return;
+    }
+
+    if (child instanceof HTMLElement && TRANSLATION_BLOCK_TAGS.has(child.tagName)) {
+      flushInlineParts();
+      const text = normalizeTranslationText(serializeInlineText(child, { skipNestedLists: true }));
+      if (text) {
+        appendTranslationSegment(segments, child, {
+          kind: hasEmittedItemSegment ? getListContinuationKind(child) : markerKind,
+          listNumber: hasEmittedItemSegment ? undefined : listNumber,
+          listDepth,
+          text,
+        });
+        hasEmittedItemSegment = true;
+      }
+      appendNestedListTranslationSegments(segments, child, listDepth);
+      return;
+    }
+
+    inlineParts.push(serializeInlineText(child, { skipNestedLists: true }));
+  });
+
+  flushInlineParts();
+}
+
+function appendNestedListTranslationSegments(
+  segments: TranslationSegment[],
+  element: HTMLElement,
+  listDepth: number
+): void {
+  Array.from(element.children).forEach((child) => {
+    if (!(child instanceof HTMLElement)) {
+      return;
+    }
+
+    if (isListElement(child)) {
+      appendListTranslationSegments(segments, child, listDepth + 1);
+      return;
+    }
+
+    appendNestedListTranslationSegments(segments, child, listDepth);
+  });
+}
+
+function appendListTranslationSegments(
+  segments: TranslationSegment[],
+  list: HTMLUListElement | HTMLOListElement,
+  listDepth = 0
+): void {
+  const isOrdered = list instanceof HTMLOListElement;
+  let listNumber = isOrdered ? getOrderedListStart(list) : 1;
+  const listStep = isOrdered && list.reversed ? -1 : 1;
+
+  Array.from(list.children).forEach((child) => {
+    if (!(child instanceof HTMLLIElement)) {
+      return;
+    }
+
+    const itemNumber = isOrdered ? getOrderedListItemNumber(child, listNumber) : undefined;
+    appendListItemContentSegments(
+      segments,
+      child,
+      isOrdered ? "ordered-list-item" : "list-item",
+      itemNumber,
+      listDepth
+    );
+
+    if (isOrdered && itemNumber !== undefined) {
+      listNumber = itemNumber + listStep;
+    }
+  });
+}
+
+function collectTranslationSegments(node: Node, segments: TranslationSegment[]): void {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = normalizeTranslationText(node.textContent ?? "");
+    if (text) {
+      segments.push({ kind: "paragraph", text });
+    }
+    return;
+  }
+
+  if (!(node instanceof HTMLElement) || shouldSkipTranslationNode(node)) {
+    return;
+  }
+
+  if (node instanceof HTMLLIElement) {
+    appendListItemContentSegments(segments, node, "list-item", undefined, 0);
+    return;
+  }
+
+  if (/^H[1-6]$/.test(node.tagName) || ["P", "BLOCKQUOTE"].includes(node.tagName)) {
+    appendTranslationSegment(segments, node);
+    return;
+  }
+
+  if (isListElement(node)) {
+    appendListTranslationSegments(segments, node);
+    return;
+  }
+
+  const hasBlockChildren = Array.from(node.children).some((child) =>
+    child instanceof HTMLElement && TRANSLATION_BLOCK_TAGS.has(child.tagName)
+  );
+
+  if (!hasBlockChildren) {
+    appendTranslationSegment(segments, node);
+    return;
+  }
+
+  Array.from(node.childNodes).forEach((child) => collectTranslationSegments(child, segments));
+}
+
+function extractTranslationSegments(markdownBody: HTMLElement): TranslationSegment[] {
+  const segments: TranslationSegment[] = [];
+  Array.from(markdownBody.childNodes).forEach((child) => collectTranslationSegments(child, segments));
+  return segments;
+}
+
+function renderTranslatedSegments(
+  resultContainer: HTMLElement,
+  segments: TranslationSegment[]
+): void {
+  resultContainer.textContent = "";
+
+  segments.forEach((segment) => {
+    const segmentElement = document.createElement("div");
+    segmentElement.className = `gdt-translate-segment gdt-translate-segment--${segment.kind}`;
+    if (segment.kind === "ordered-list-item" && segment.listNumber !== undefined) {
+      segmentElement.dataset.gdtListNumber = String(segment.listNumber);
+    }
+    if (segment.listDepth) {
+      segmentElement.style.setProperty("--gdt-list-indent", `${Math.min(segment.listDepth, 6) * 16}px`);
+    }
+    segmentElement.textContent = segment.text;
+    resultContainer.appendChild(segmentElement);
+  });
+}
+
+function hasNestedCommentBody(element: HTMLElement): boolean {
+  return Boolean(element.querySelector(COMMENT_BODY_SELECTORS.join(", ")));
+}
+
+function isInsideCommentContext(element: HTMLElement): boolean {
+  return Boolean(element.closest(COMMENT_CONTEXT_SELECTORS.join(", ")));
+}
+
+function hasTranslateControls(element: HTMLElement): boolean {
+  return Array.from(element.children).some((child) =>
+    child instanceof HTMLElement && child.classList.contains(TRANSLATE_CONTROLS_CLASS)
+  );
+}
+
+function createTranslateButtonIcon(): SVGSVGElement {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.classList.add("gdt-translate-icon");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute(
+    "d",
+    "M12.87 15.07 10.33 12.56l.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17A15.7 15.7 0 0 1 9 11.35 14.7 14.7 0 0 1 6.69 8h-2a16.9 16.9 0 0 0 2.98 4.56L2.58 17.58 4 19l5-5 3.11 3.11.76-2.04ZM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12Zm-2.62 7 1.62-4.33L19.12 17h-3.24Z"
+  );
+  icon.appendChild(path);
+
+  return icon;
+}
+
+function setTranslateButtonLabel(btn: HTMLButtonElement, messageKey: string): void {
+  btn.textContent = "";
+  btn.appendChild(createTranslateButtonIcon());
+  btn.appendChild(document.createTextNode(chrome.i18n.getMessage(messageKey)));
+}
+
+function parseTranslationTargetLanguage(value: string): TranslationTargetLanguage {
+  if (isTranslationTargetLanguage(value)) {
+    return value;
+  }
+
+  return "browser";
+}
+
+function createTranslationLanguageOption(
+  value: TranslationTargetLanguage,
+  messageKey: string
+): HTMLOptionElement {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = chrome.i18n.getMessage(messageKey);
+  return option;
+}
+
+async function initializeTranslationLanguageSelect(select: HTMLSelectElement): Promise<void> {
+  const result = await chrome.storage.sync.get(["targetLanguage"]);
+  const storedLanguage = typeof result.targetLanguage === "string"
+    ? parseTranslationTargetLanguage(result.targetLanguage)
+    : "browser";
+
+  if (select.dataset.gdtLanguageUserSelected === "true") return;
+  select.value = storedLanguage;
+}
+
+function createTranslationLanguageSelect(): HTMLSelectElement {
+  const select = document.createElement("select");
+  select.className = "gdt-translate-language-select";
+  select.setAttribute("aria-label", chrome.i18n.getMessage("labelTranslationTarget"));
+  select.title = chrome.i18n.getMessage("labelTranslationTarget");
+
+  select.appendChild(createTranslationLanguageOption("browser", "optionBrowserLanguage"));
+  select.appendChild(createTranslationLanguageOption("ko", "optionKorean"));
+  select.appendChild(createTranslationLanguageOption("en", "optionEnglish"));
+
+  select.addEventListener("change", () => {
+    select.dataset.gdtLanguageUserSelected = "true";
+  });
+
+  initializeTranslationLanguageSelect(select).catch(() => {
+    if (select.dataset.gdtLanguageUserSelected !== "true") {
+      select.value = "browser";
+    }
+  });
+
+  return select;
+}
+
+function createTranslationLanguagePicker(): {
+  wrapper: HTMLSpanElement;
+  select: HTMLSelectElement;
+} {
+  const wrapper = document.createElement("span");
+  wrapper.className = TRANSLATE_LANGUAGE_WRAPPER_CLASS;
+
+  const select = createTranslationLanguageSelect();
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.classList.add("gdt-translate-caret");
+  icon.setAttribute("viewBox", "0 0 16 16");
+  icon.setAttribute("aria-hidden", "true");
+
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M4 6L8 10L12 6");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.5");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  icon.appendChild(path);
+
+  wrapper.appendChild(select);
+  wrapper.appendChild(icon);
+
+  return { wrapper, select };
+}
+
+function nextTranslationRequestId(resultContainer: HTMLElement): string {
+  const currentId = parseInt(resultContainer.dataset[TRANSLATE_REQUEST_ID_ATTR] ?? "0", 10);
+  const requestId = String((isNaN(currentId) ? 0 : currentId) + 1);
+  resultContainer.dataset[TRANSLATE_REQUEST_ID_ATTR] = requestId;
+  return requestId;
+}
+
+function isCurrentTranslationRequest(
+  resultContainer: HTMLElement,
+  requestId: string
+): boolean {
+  return resultContainer.dataset[TRANSLATE_REQUEST_ID_ATTR] === requestId;
+}
+
+function resetTranslationResult(
+  btn: HTMLButtonElement,
+  resultContainer: HTMLElement
+): void {
+  nextTranslationRequestId(resultContainer);
+  delete resultContainer.dataset.gdtTranslated;
+  resultContainer.textContent = "";
+  resultContainer.hidden = true;
+  btn.disabled = false;
+  btn.hidden = false;
+  setTranslateButtonLabel(btn, "btnTranslate");
+  btn.title = "";
+}
+
+/**
+ * 번역 버튼 클릭을 처리합니다.
+ * - 첫 클릭: 번역 실행 후 원문 아래에 번역 결과 표시
+ * - 이후 클릭: 번역 결과 접기/펼치기
+ */
+function handleTranslateClick(
+  btn: HTMLButtonElement,
+  sourceSegments: TranslationSegment[],
+  resultContainer: HTMLElement,
+  languageSelect: HTMLSelectElement
+): void {
+  if (resultContainer.dataset.gdtTranslated === "true") {
+    const showing = !resultContainer.hidden;
+    resultContainer.hidden = showing;
+    setTranslateButtonLabel(btn, showing ? "btnTranslate" : "btnHideTranslation");
+    return;
+  }
+
+  setTranslateButtonLabel(btn, "btnTranslating");
+  btn.disabled = true;
+  btn.title = "";
+
+  if (sourceSegments.length === 0) {
+    btn.disabled = false;
+    setTranslateButtonLabel(btn, "btnTranslate");
+    return;
+  }
+
+  const targetLanguage = parseTranslationTargetLanguage(languageSelect.value);
+  const requestId = nextTranslationRequestId(resultContainer);
+
+  translateSegments(sourceSegments, targetLanguage).then((translatedSegments) => {
+    if (!isCurrentTranslationRequest(resultContainer, requestId)) return;
+
+    renderTranslatedSegments(resultContainer, translatedSegments);
+    resultContainer.dataset.gdtTranslated = "true";
+    resultContainer.hidden = false;
+    setTranslateButtonLabel(btn, "btnHideTranslation");
+    btn.disabled = false;
+  }).catch((err: unknown) => {
+    if (!isCurrentTranslationRequest(resultContainer, requestId)) return;
+
+    btn.disabled = false;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "already-target") {
+      setTranslateButtonLabel(btn, "btnTranslate");
+      btn.title = chrome.i18n.getMessage("tooltipAlreadyTargetLanguage");
+    } else {
+      setTranslateButtonLabel(btn, "btnTranslate");
+      btn.title = chrome.i18n.getMessage("tooltipTranslateFailed");
+    }
+  });
+}
+
+/**
+ * 페이지 내 GitHub 코멘트 본문마다 번역 버튼을 삽입합니다.
+ * Translator API가 없는 Chrome에서는 번역 컨트롤을 삽입하지 않습니다.
+ * 언어 쌍별 availability는 버튼 클릭 시점에 확인합니다.
+ *
+ * GitHub 코멘트 구조 변형:
+ *   - 구버전: <div class="comment-body"><div class="markdown-body">...</div></div>
+ *   - 신버전: <div class="comment-body markdown-body js-comment-body">...</div>  (동일 element)
+ */
+async function injectTranslateButtons(): Promise<void> {
+  if (!(await getTranslatorApi())) return;
+
+  const excludeSelector = TRANSLATE_EXCLUDE_SELECTORS.join(", ");
+
+  // markdown-body를 직접 탐색: 코멘트 컨테이너 안에 있는 것만 대상
+  const candidates = document.querySelectorAll<HTMLElement>(COMMENT_MARKDOWN_SELECTORS.join(", "));
+
+  candidates.forEach((markdownBody) => {
+    if (markdownBody.dataset[TRANSLATE_INJECTED_ATTR]) {
+      if (hasTranslateControls(markdownBody)) return;
+      delete markdownBody.dataset[TRANSLATE_INJECTED_ATTR];
+    }
+
+    if (!markdownBody.classList.contains("markdown-body") && hasNestedCommentBody(markdownBody)) return;
+    if (!isInsideCommentContext(markdownBody)) return;
+    if (markdownBody.closest(excludeSelector)) return;
+
+    const sourceSegments = extractTranslationSegments(markdownBody);
+    if (sourceSegments.length === 0) return;
+
+    markdownBody.dataset[TRANSLATE_INJECTED_ATTR] = "true";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "gdt-translate-btn";
+    setTranslateButtonLabel(btn, "btnTranslate");
+
+    const languagePicker = createTranslationLanguagePicker();
+    const languageSelect = languagePicker.select;
+
+    const controls = document.createElement("div");
+    controls.className = TRANSLATE_CONTROLS_CLASS;
+
+    const actions = document.createElement("div");
+    actions.className = TRANSLATE_ACTIONS_CLASS;
+
+    const resultContainer = document.createElement("div");
+    resultContainer.className = "gdt-translate-result";
+    resultContainer.hidden = true;
+
+    btn.addEventListener("click", () =>
+      handleTranslateClick(btn, sourceSegments, resultContainer, languageSelect)
+    );
+
+    languageSelect.addEventListener("change", () => {
+      resetTranslationResult(btn, resultContainer);
+    });
+
+    actions.appendChild(btn);
+    actions.appendChild(languagePicker.wrapper);
+    controls.appendChild(actions);
+    controls.appendChild(resultContainer);
+    markdownBody.appendChild(controls);
+  });
+}
+
+// ============================================================
 // 버튼 삽입 로직
 // ============================================================
 
@@ -608,6 +1569,8 @@ async function injectButtons(): Promise<void> {
   // 5. PR 인라인 리뷰 코멘트 스레드 헤더의 파일 경로 옆에 버튼 삽입
   injectIntoPrReviewThreadHeaders(settings);
 
+  // 6. 코멘트 본문 번역 버튼 삽입 (Chrome Translator API, 미지원 시 무시)
+  await injectTranslateButtons();
 }
 
 /**
@@ -1104,7 +2067,16 @@ function init(): void {
   startObserver();
 
   // GitHub의 Turbo 내비게이션 이벤트 대응
-  document.addEventListener("turbo:load", () => {
+  ["turbo:load", "turbo:render", "turbo:frame-load"].forEach((eventName) => {
+    document.addEventListener(eventName, () => {
+      window.setTimeout(() => {
+        syncLineBadges();
+        injectButtons();
+      }, 0);
+    });
+  });
+
+  document.addEventListener("turbo:morph", () => {
     syncLineBadges();
     injectButtons();
   });

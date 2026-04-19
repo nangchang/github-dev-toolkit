@@ -5,6 +5,21 @@
   "labelEditor": {
     "message": "Editor / IDE"
   },
+  "labelTranslationTarget": {
+    "message": "Translation Target"
+  },
+  "optionBrowserLanguage": {
+    "message": "Browser language"
+  },
+  "optionKorean": {
+    "message": "Korean"
+  },
+  "optionEnglish": {
+    "message": "English"
+  },
+  "hintTranslationTarget": {
+    "message": "Used for GitHub comment translation results."
+  },
   "labelBasePath": {
     "message": "Workspace Base Path"
   },
@@ -53,5 +68,20 @@
   },
   "tooltipUnconfigured": {
     "message": "GitHub Dev Toolkit: Please set your base path and IDE in the extension popup."
+  },
+  "btnTranslate": {
+    "message": "Translate"
+  },
+  "btnTranslating": {
+    "message": "Translating..."
+  },
+  "btnHideTranslation": {
+    "message": "Hide translation"
+  },
+  "tooltipAlreadyTargetLanguage": {
+    "message": "This comment is already written in the target language."
+  },
+  "tooltipTranslateFailed": {
+    "message": "Translation failed. Please try again."
   }
 }
