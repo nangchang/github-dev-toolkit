@@ -759,7 +759,7 @@ async function getTranslateTargetLanguage(
 
 /**
  * 짧은 댓글에서 Chrome LanguageDetector가 오판하는 경우를 줄이기 위한 가벼운 보정입니다.
- * GitHub 댓글 번역의 핵심 경로인 ko/en은 문자 종류만으로도 꽤 안정적으로 구분할 수 있습니다.
+ * 한글은 문자 종류만으로 안정적으로 구분하고, 그 외 언어는 detector 결과를 우선합니다.
  */
 function inferCommentLanguage(
   text: string,
@@ -768,12 +768,11 @@ function inferCommentLanguage(
 ): string {
   const detected = normalizeLanguageCode(detectedLanguage);
   const hangulCount = (text.match(/[\uac00-\ud7af]/g) ?? []).length;
-  const latinCount = (text.match(/[A-Za-z]/g) ?? []).length;
 
   if (hangulCount >= 2) return "ko";
-  if (latinCount >= 3 && hangulCount === 0) return "en";
+  if (detected) return detected;
 
-  return detected ?? TRANSLATE_DEFAULT_SOURCE_BY_TARGET[targetLanguage] ?? "en";
+  return TRANSLATE_DEFAULT_SOURCE_BY_TARGET[targetLanguage] ?? "en";
 }
 
 /**
